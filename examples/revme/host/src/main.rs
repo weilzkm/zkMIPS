@@ -12,7 +12,13 @@ fn prove_revm() {
         let mut data = vec![];
         f.read_to_end(&mut data).unwrap();
         data
-    } else {
+    } else if let Ok(bin_path) = env::var("BIN_PATH") {
+        let buf = std::fs::read(&bin_path).unwrap();
+        let test_suite = bincode::deserialize::<models::TestSuite>(&buf).expect("反序列化失败");
+        let json_data = serde_json::to_string(&test_suite).expect("JSON序列化失败");
+        json_data.as_bytes().to_vec()
+    } 
+    else {
         guest_std::TEST_DATA.to_vec()
     };
 
@@ -28,7 +34,20 @@ fn prove_revm() {
     // Execute the program using the `ProverClient.execute` method, without generating a proof.
     let (_, report) = client.execute(ELF, stdin.clone()).run().unwrap();
     println!("executed program with {} cycles", report.total_instruction_count());
+    println!("execution report (opcode counts):");
+    for (label, count) in report.opcode_counts.as_ref() {
+        if *count > 0 {
+            println!("  {}: {}",  label, count);
+        }
+    }
 
+    println!("execution report (syscall counts):");
+    for (label, count) in report.syscall_counts.as_ref() {
+        if *count > 0 {
+            println!("  {}: {}", label, count);
+        }
+    }
+    /*
     // Generate the proof for the given program and input.
     let (pk, vk) = client.setup(ELF);
     let proof = client.prove(&pk, stdin).run().unwrap();
@@ -45,6 +64,7 @@ fn prove_revm() {
     client.verify(&deserialized_proof, &vk).expect("verification failed");
 
     println!("successfully generated and verified proof for the program!")
+     */
 }
 
 fn main() {
