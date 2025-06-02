@@ -689,12 +689,17 @@ pub mod tests {
     use itertools::Itertools;
     use p3_koala_bear::KoalaBear;
     use strum::IntoEnumIterator;
+    use tendermint_light_client_verifier::types::LightBlock;
+
+    use std::{fs::File, io::Read};
+    use std::error::Error;
 
     use zkm_core_executor::programs::tests::other_memory_program;
     use zkm_core_executor::{
         programs::tests::{
             fibonacci_program, hello_world_program, sha3_chain_program, simple_memory_program,
             simple_program, ssz_withdrawals_program, unconstrained_program,
+            tendermint_program,
         },
         Instruction, MipsAirId, Opcode, Program,
     };
@@ -1069,6 +1074,42 @@ pub mod tests {
         let program = sha3_chain_program();
         run_test::<CpuProver<_, _>>(program).unwrap();
     }
+
+    pub fn load_light_block(block_height: u64) -> Result<LightBlock, Box<dyn Error>> {
+        let mut file = File::open(format!("../../../examples/tendermint/host/files/block_{}.json", block_height))?;
+        let mut block_response_raw = String::new();
+        file.read_to_string(&mut block_response_raw)
+            .unwrap_or_else(|_| panic!("Failed to read block number {}", block_height));
+        Ok(serde_json::from_str(&block_response_raw)?)
+    }
+
+    fn get_light_blocks() -> (LightBlock, LightBlock) {
+        let light_block_1 = load_light_block(2279100).expect("Failed to generate light block 1");
+        let light_block_2 = load_light_block(2279130).expect("Failed to generate light block 2");
+        (light_block_1, light_block_2)
+    }
+
+    #[test]
+    fn test_tendermint_prove_simple() {
+        setup_logger();
+
+        // Load light blocks from the `files` subdirectory
+        let (light_block_1, light_block_2) = get_light_blocks();
+
+        let mut stdin = ZKMStdin::new();
+
+        let encoded_1 = serde_cbor::to_vec(&light_block_1).unwrap();
+        let encoded_2 = serde_cbor::to_vec(&light_block_2).unwrap();
+
+        stdin.write_vec(encoded_1);
+        stdin.write_vec(encoded_2);
+        let program = tendermint_program();
+
+        let opts = ZKMCoreOpts::default();
+        prove::<_, CpuProver<_, _>>(program, &stdin, KoalaBearPoseidon2::new(), opts, None)
+            .unwrap();
+    }
+
 
     #[test]
     fn test_fibonacci_prove_checkpoints() {

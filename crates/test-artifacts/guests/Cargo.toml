@@ -43,6 +43,7 @@ members = [
   "verify-proof",
   "u256x2048-mul",
   "unconstrained",
+  "tendermint",
 ]
 resolver = "2"
 
