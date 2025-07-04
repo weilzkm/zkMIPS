@@ -124,6 +124,9 @@ pub struct Executor<'a> {
     /// The collected records, split by cpu cycles.
     pub records: Vec<ExecutionRecord>,
 
+    /// The branch target recprd
+    pub branch_target_record: HashMap<u32, u32>, 
+
     /// Local memory access events.
     pub local_memory_access: HashMap<u32, MemoryLocalEvent>,
 
@@ -294,6 +297,7 @@ impl<'a> Executor<'a> {
             max_syscall_cycles,
             report: ExecutionReport::default(),
             local_counts: LocalCounts::default(),
+            branch_target_record: HashMap::new(),
             print_report: false,
             subproof_verifier: context.subproof_verifier,
             hook_registry,
@@ -1286,7 +1290,7 @@ impl<'a> Executor<'a> {
                 return Err(ExecutionError::UnsupportedInstruction(instruction.op_c));
             }
         }
-        println!(
+        log::debug!(
             "Executing instruction: {:?} at PC: {:08X}, Next PC: {:08X}, Next Next PC: {:08X}， a: {:08X}, b: {:08X}, c: {:08X}, hi_or_prev_a: {:?}",
             instruction,
             pc,
@@ -1315,6 +1319,12 @@ impl<'a> Executor<'a> {
             );
         };
 
+        if self.state.next_is_delayslot {
+            if next_next_pc != next_pc + 4 {
+                *self.branch_target_record
+                    .entry(next_next_pc).or_insert(0) += 1;
+            }
+        }
         // Update the program counter.
         self.state.pc = next_pc;
         self.state.next_pc = next_next_pc;
@@ -1325,7 +1335,7 @@ impl<'a> Executor<'a> {
                 regs[reg] = self.register((reg as u8).into());
             }
 
-            println!(
+            log::debug!(
                 "PC: {:08X}, Next PC: {:08X} regs {:08X?}\n",
                 self.state.pc, self.state.next_pc, regs
             );
@@ -1842,6 +1852,18 @@ impl<'a> Executor<'a> {
         if done && self.unconstrained {
             log::error!("program ended in unconstrained mode at clk {}", self.state.global_clk);
             return Err(ExecutionError::EndInUnconstrained());
+        }
+
+        if done {
+           let mut sorted: Vec<_> = self.branch_target_record.clone().into_iter().collect();
+           sorted.sort_by(|a, b| b.1.cmp(&a.1)); // 按 count 降序
+
+            // 5. 打印结果
+            for (pc, count) in sorted {
+                if count > 1 {
+                    println!("{:X} : {}", pc, count);
+                }
+            }
         }
 
         Ok(done)
