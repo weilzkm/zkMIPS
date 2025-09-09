@@ -146,3 +146,7 @@ require (
 	golang.org/x/net v0.38.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace github.com/ProjectZKM/Ziren/crates/go-runtime/zkm_runtime => ../../../crates/go-runtime/zkm_runtime
+
+require github.com/ProjectZKM/Ziren/crates/go-runtime/zkm_runtime v0.0.0-20240817102429-2faba0888c02

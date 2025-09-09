@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ProjectZKM/Ziren/crates/go-runtime/zkm_runtime"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -53,4 +54,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "stateless self-validation receipt root mismatch (cross: %x local: %x)\n", crossReceiptRoot, payload.Block.ReceiptHash())
 		os.Exit(12)
 	}
+
+	zkm_runtime.Commit[uint32](0)
 }

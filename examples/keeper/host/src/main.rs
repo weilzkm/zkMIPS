@@ -20,6 +20,9 @@ fn prove_keeper() {
     let (pk, vk) = client.setup(ELF);
     let mut proof = client.prove(&pk, stdin).run().unwrap();
 
+    let res = proof.public_values.read::<u32>();
+    println!("res: {res}");
+
     println!("generated proof");
     // Verify proof and public values
     client.verify(&proof, &vk).expect("verification failed");
