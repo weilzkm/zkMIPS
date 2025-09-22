@@ -2,7 +2,7 @@ use std::process::Command;
 use std::path::Path;
 
 fn main() {
-    let go_src = Path::new("../guest");
+    let go_src = Path::new("../go-ethereum");
     let status = Command::new("go")
         .arg("build")
         .arg("-tags")
