@@ -3,13 +3,18 @@ use zkm_sdk::{utils, ProverClient, ZKMProofWithPublicValues, ZKMStdin};
 /// The ELF we want to execute inside the zkVM.
 const ELF: &[u8] = include_bytes!("../../go-ethereum/keeper");
 
-fn prove_keeper() {
+use std::env;
+use std::fs::File;
+use std::io::Read;
+
+fn prove_keeper(path: &str) {
+    println!("Proving for payload file: {}", path);
     // The input stream that the guest will read from using `zkm_zkvm::io::read`. Note that the
     // types of the elements in the input stream must match the types being read in the guest.
     let mut stdin = ZKMStdin::new();
-    let data = vec![
-249u8,164,230,131,8,139,176,249,5,85,249,2,128,160,75,42,54,188,89,61,52,101,85,115,149,74,121,143,37,129,64,176,211,38,146,
-            ];
+    let mut file = File::open(path).expect("unable to open file {path}");
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).expect("unable to read file");
     stdin.write(&data);
 
     // Create a `ProverClient` method.
@@ -21,10 +26,7 @@ fn prove_keeper() {
 
     // Generate the proof for the given guest and input.
     let (pk, vk) = client.setup(ELF);
-    let mut proof = client.prove(&pk, stdin).run().unwrap();
-
-    let res = proof.public_values.read::<u32>();
-    println!("res: {res}");
+    let proof = client.prove(&pk, stdin).compressed().run().unwrap();
 
     println!("generated proof");
     // Verify proof and public values
@@ -43,5 +45,12 @@ fn prove_keeper() {
 
 fn main() {
     utils::setup_logger();
-    prove_keeper();
+
+    // read payload file path from command line argument
+    let path = env::args().nth(1).unwrap_or_else(|| {
+        eprintln!("用法: {} <input>", env::args().next().unwrap());
+        std::process::exit(1);
+    });
+
+    prove_keeper(&path);
 }

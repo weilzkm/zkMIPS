@@ -41,6 +41,8 @@ members = [
   "large-sum/host",
   "simple-go/host",
   "keeper/host",
+  "keeper/host-executor",
+  "keeper/host-network",
 ]
 resolver = "2"
 
