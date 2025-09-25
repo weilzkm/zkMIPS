@@ -1,7 +1,7 @@
 use zkm_sdk::{utils, ProverClient, ZKMStdin};
 
 /// The ELF we want to execute inside the zkVM.
-const ELF: &[u8] = include_bytes!("../../go-ethereum/keeper");
+const ELF: &[u8] = include_bytes!("../../go-ethereum/cmd/keeper/keeper");
 
 use std::env;
 use std::fs;

@@ -2,12 +2,12 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    let go_src = Path::new("../go-ethereum");
+    let go_src = Path::new("../go-ethereum/cmd/keeper");
     let status = Command::new("go")
         .arg("build")
         .arg("-tags")
         .arg("ziren")
-        .arg("./cmd/keeper")
+        .arg(".")
         .current_dir(go_src)
         .env("GOOS", "linux")
         .env("GOARCH", "mipsle")
@@ -20,5 +20,5 @@ fn main() {
     }
 
     // 5. 告诉 Cargo：只要 go/ 目录有变动就重新跑 build.rs
-    println!("cargo:rerun-if-changed=../guest");
+    println!("cargo:rerun-if-changed=../go-ethereum");
 }
