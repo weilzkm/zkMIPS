@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 hex = "0.4.3"
-zkm-sdk = { workspace = true }
+zkm-sdk = { workspace = true, features=["linear_memory"] }
 
 [build-dependencies]
 zkm-build = { workspace = true }

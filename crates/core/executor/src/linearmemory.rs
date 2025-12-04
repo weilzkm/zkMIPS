@@ -13,7 +13,7 @@ pub struct Memory<T: Copy> {
     /// The registers.
     pub registers: Registers<T>,
     /// The page table.
-    pub unit_table: PagedMemory<T>,
+    pub unit_table: WordMemory<T>,
 }
 
 impl<V: Copy + 'static> IntoIterator for Memory<V> {
@@ -28,14 +28,14 @@ impl<V: Copy + 'static> IntoIterator for Memory<V> {
 
 impl<T: Copy + Default> Default for Memory<T> {
     fn default() -> Self {
-        Self { registers: Registers::default(), unit_table: PagedMemory::default() }
+        Self { registers: Registers::default(), unit_table: WordMemory::default() }
     }
 }
 
 impl<T: Copy> Memory<T> {
     /// Initialize a new memory with preallocated page table.
     pub fn new_preallocated() -> Self {
-        Self { registers: Registers::default(), unit_table: PagedMemory::new_preallocated() }
+        Self { registers: Registers::default(), unit_table: WordMemory::new_preallocated() }
     }
 
     /// Get an entry for the given address.
@@ -200,173 +200,91 @@ impl<V> Default for Page<V> {
     }
 }
 
-const LOG_PAGE_LEN: usize = 14;
-const PAGE_LEN: usize = 1 << LOG_PAGE_LEN;
-const MAX_PAGE_COUNT: usize = MAX_MEMORY / 4 / PAGE_LEN + 1;
-const NO_PAGE: u16 = u16::MAX;
-const PAGE_MASK: usize = PAGE_LEN - 1;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "V: Serialize"))]
-#[serde(bound(deserialize = "V: DeserializeOwned"))]
-pub struct NewPage<V>(Vec<Option<V>>);
-
-impl<V: Copy> NewPage<V> {
-    pub fn new() -> Self {
-        Self(vec![None; PAGE_LEN])
-    }
-}
-
-impl<V: Copy> Default for NewPage<V> {
-    fn default() -> Self {
-        Self(Vec::new())
-    }
-}
+const MAX_WORD_COUNT: usize = MAX_MEMORY / 4 ;
 
 /// Paged memory. Balances both memory locality and total memory usage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "V: Serialize"))]
 #[serde(bound(deserialize = "V: DeserializeOwned"))]
-pub struct PagedMemory<V: Copy> {
-    /// The internal page table.
-    pub unit_table: Vec<NewPage<V>>,
-    pub index: Vec<u16>,
+pub struct WordMemory<V: Copy> {
+    /// The internal word memory.
+    pub unit_table: Vec<Option<V>>,
 }
 
-impl<V: Copy> PagedMemory<V> {
-    /// The number of lower bits to ignore, since addresses (except registers) are a multiple of 4.
-    const NUM_IGNORED_LOWER_BITS: usize = 2;
+impl<V: Copy> WordMemory<V> {
 
-    /// Create a `PagedMemory` with capacity `MAX_PAGE_COUNT`.
+    /// Create a `WordMemory` with capacity `MAX_WORD_COUNT`.
     pub fn new_preallocated() -> Self {
-        Self { unit_table: Vec::new(), index: vec![NO_PAGE; MAX_PAGE_COUNT] }
+        Self { unit_table: vec![None; MAX_WORD_COUNT] }
     }
 
     /// Get a reference to the memory value at the given address, if it exists.
     pub fn get(&self, addr: u32) -> Option<&V> {
-        let (upper, lower) = Self::indices(addr);
-        let index = self.index[upper];
-        if index == NO_PAGE {
-            None
-        } else {
-            self.unit_table[index as usize].0[lower].as_ref()
-        }
+        self.unit_table[addr as usize >> 2].as_ref()
     }
 
     /// Get a mutable reference to the memory value at the given address, if it exists.
     pub fn get_mut(&mut self, addr: u32) -> Option<&mut V> {
-        let (upper, lower) = Self::indices(addr);
-        let index = self.index[upper];
-        if index == NO_PAGE {
-            None
-        } else {
-            self.unit_table[index as usize].0[lower].as_mut()
-        }
+        self.unit_table[addr as usize >> 2].as_mut()
     }
 
     /// Insert a value at the given address. Returns the previous value, if any.
     #[inline]
     pub fn insert(&mut self, addr: u32, value: V) -> Option<V> {
-        let (upper, lower) = Self::indices(addr);
-        let mut index = self.index[upper];
-        if index == NO_PAGE {
-            index = self.unit_table.len() as u16;
-            self.index[upper] = index;
-            self.unit_table.push(NewPage::new());
-        }
-        self.unit_table[index as usize].0[lower].replace(value)
+        self.unit_table[addr as usize >> 2].replace(value)
     }
 
     /// Remove the value at the given address if it exists, returning it.
     pub fn remove(&mut self, addr: u32) -> Option<V> {
-        let (upper, lower) = Self::indices(addr);
-        let index = self.index[upper];
-        if index == NO_PAGE {
-            None
-        } else {
-            self.unit_table[index as usize].0[lower].take()
-        }
+        self.unit_table[addr as usize >> 2].take()
     }
 
     /// Gets the memory entry for the given address.
     #[inline]
     pub fn entry(&mut self, addr: u32) -> Entry<'_, V> {
-        let (upper, lower) = Self::indices(addr);
-        let index = self.index[upper];
-        if index == NO_PAGE {
-            let index = self.unit_table.len();
-            self.index[upper] = index as u16;
-            self.unit_table.push(NewPage::new());
-            Entry::Vacant(VacantEntry { entry: &mut self.unit_table[index].0[lower] })
-        } else {
-            let option = &mut self.unit_table[index as usize].0[lower];
-            match option {
-                Some(v) => Entry::Occupied(OccupiedEntry { entry: v }),
-                None => Entry::Vacant(VacantEntry { entry: option }),
-            }
+        let entry = &mut self.unit_table[addr as usize >> 2];
+        match entry {
+            Some(v) => Entry::Occupied(OccupiedEntry { entry: v }),
+            None => Entry::Vacant(VacantEntry { entry }),
         }
     }
 
     /// Returns an iterator over the occupied addresses.
     pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
-        self.index.iter().enumerate().filter(|(_, &i)| i != NO_PAGE).flat_map(|(i, index)| {
-            let upper = i << LOG_PAGE_LEN;
-            self.unit_table[*index as usize]
-                .0
-                .iter()
-                .enumerate()
-                .filter_map(move |(lower, v)| v.map(|_| Self::decompress_addr(upper + lower)))
-        })
+        self.unit_table
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| value.is_some())
+            .map(|(addr, _)| (addr << 2) as u32)
     }
 
-    /// Get the exact number of addresses in use. This function iterates through each page
+    /// Get the exact number of addresses in use. This function iterates through each word
     /// and is therefore somewhat expensive.
     pub fn exact_len(&self) -> usize {
-        self.index
+        self.unit_table
             .iter()
-            .filter(|&&i| i != NO_PAGE)
-            .map(|index| self.unit_table[*index as usize].0.iter().filter(|v| v.is_some()).count())
-            .sum()
+            .filter(|&&i| i.is_some())
+            .count()
     }
 
     /// Estimate the number of addresses in use.
     pub fn estimate_len(&self) -> usize {
-        self.index.iter().filter(|&i| *i != NO_PAGE).count() * PAGE_LEN
+        self.unit_table.iter().filter(|&&i| i.is_some()).count()
     }
 
     /// Clears the page table. Drops all `Page`s, but retains the memory used by the table itself.
     pub fn clear(&mut self) {
-        self.unit_table.clear();
-        self.index.fill(NO_PAGE);
-    }
-
-    /// Break apart an address into an upper and lower index.
-    #[inline]
-    const fn indices(addr: u32) -> (usize, usize) {
-        let index = Self::compress_addr(addr);
-        (index >> LOG_PAGE_LEN, index & PAGE_MASK)
-    }
-
-    /// Compress an address from the sparse address space to a contiguous space.
-    #[inline]
-    const fn compress_addr(addr: u32) -> usize {
-        addr as usize >> Self::NUM_IGNORED_LOWER_BITS
-    }
-
-    /// Decompress an address from a contiguous space to the sparse address space.
-    #[inline]
-    const fn decompress_addr(addr: usize) -> u32 {
-        (addr << Self::NUM_IGNORED_LOWER_BITS) as u32
+        self.unit_table.fill(None);
     }
 }
 
-impl<V: Copy> Default for PagedMemory<V> {
+impl<V: Copy> Default for WordMemory<V> {
     fn default() -> Self {
-        Self { unit_table: Vec::new(), index: vec![NO_PAGE; MAX_PAGE_COUNT] }
+        Self { unit_table: vec![None; MAX_WORD_COUNT] }
     }
 }
 
-/// An entry of `PagedMemory` or `Registers`, for in-place manipulation.
+/// An entry of `WordMemory` or `Registers`, for in-place manipulation.
 pub enum Entry<'a, V: Copy> {
     Vacant(VacantEntry<'a, V>),
     Occupied(OccupiedEntry<'a, V>),
@@ -451,7 +369,7 @@ impl<'a, V: Copy> OccupiedEntry<'a, V> {
     }
 }
 
-impl<V: Copy> FromIterator<(u32, V)> for PagedMemory<V> {
+impl<V: Copy> FromIterator<(u32, V)> for WordMemory<V> {
     fn from_iter<T: IntoIterator<Item = (u32, V)>>(iter: T) -> Self {
         let mut mmu = Self::new_preallocated();
         for (k, v) in iter {
@@ -461,23 +379,18 @@ impl<V: Copy> FromIterator<(u32, V)> for PagedMemory<V> {
     }
 }
 
-impl<V: Copy + 'static> IntoIterator for PagedMemory<V> {
+impl<V: Copy + 'static> IntoIterator for WordMemory<V> {
     type Item = (u32, V);
 
     type IntoIter = Box<dyn Iterator<Item = Self::Item>>;
 
-    fn into_iter(mut self) -> Self::IntoIter {
-        Box::new(self.index.into_iter().enumerate().filter(|(_, i)| *i != NO_PAGE).flat_map(
-            move |(i, index)| {
-                let upper = i << LOG_PAGE_LEN;
-                std::mem::take(&mut self.unit_table[index as usize])
-                    .0
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(move |(lower, v)| {
-                        v.map(|v| (Self::decompress_addr(upper + lower), v))
-                    })
-            },
-        ))
+    fn into_iter(self) -> Self::IntoIter {
+        Box::new(
+            self.unit_table
+                .into_iter()
+                .enumerate()
+                .filter(|(_, v)| v.is_some())
+                .map(move |(addr, v)| ((addr << 2) as u32, v.unwrap()))
+        )
     }
 }

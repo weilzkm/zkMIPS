@@ -1,5 +1,8 @@
 use super::{Syscall, SyscallCode, SyscallContext};
+#[cfg(not(feature = "linear_memory"))]
 use crate::memory::Entry;
+#[cfg(feature = "linear_memory")]
+use crate::linearmemory::Entry;
 use crate::ExecutionError;
 
 pub(crate) struct HintLenSyscall;

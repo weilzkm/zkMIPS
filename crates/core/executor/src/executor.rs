@@ -25,7 +25,6 @@ use crate::{
         MemoryRecord, MemoryRecordEnum, MemoryWriteRecord, MiscEvent, MovCondEvent, SyscallEvent,
     },
     hook::{HookEnv, HookRegistry},
-    memory::{Entry, Memory},
     pad_mips_event_counts,
     record::{ExecutionRecord, MemoryAccessRecord},
     sign_extend,
@@ -35,6 +34,11 @@ use crate::{
     ExecutionReport, Instruction, MaximalShapes, MipsAirId, Opcode, Program, Register,
     NUM_REGISTERS,
 };
+
+#[cfg(not(feature = "linear_memory"))]
+use crate::memory::{Entry, Memory};
+#[cfg(feature = "linear_memory")]
+use crate::linearmemory::{Entry, Memory};
 
 /// The maximum number of instructions in a program.
 pub const MAX_PROGRAM_SIZE: usize = 1 << 22;
@@ -415,15 +419,15 @@ impl<'a> Executor<'a> {
     #[inline]
     pub fn word(&mut self, addr: u32) -> u32 {
         #[allow(clippy::single_match_else)]
-        let record = self.state.memory.page_table.get(addr);
+        let record = self.state.memory.unit_table.get(addr);
 
         if self.executor_mode == ExecutorMode::Checkpoint || self.unconstrained {
             match record {
                 Some(record) => {
-                    self.memory_checkpoint.page_table.entry(addr).or_insert_with(|| Some(*record));
+                    self.memory_checkpoint.unit_table.entry(addr).or_insert_with(|| Some(*record));
                 }
                 None => {
-                    self.memory_checkpoint.page_table.entry(addr).or_insert(None);
+                    self.memory_checkpoint.unit_table.entry(addr).or_insert(None);
                 }
             }
         }
@@ -464,15 +468,15 @@ impl<'a> Executor<'a> {
         local_memory_access: Option<&mut HashMap<u32, MemoryLocalEvent>>,
     ) -> MemoryReadRecord {
         // Get the memory record entry.
-        let entry = self.state.memory.page_table.entry(addr);
+        let entry = self.state.memory.unit_table.entry(addr);
         if self.executor_mode == ExecutorMode::Checkpoint || self.unconstrained {
             match entry {
                 Entry::Occupied(ref entry) => {
                     let record = entry.get();
-                    self.memory_checkpoint.page_table.entry(addr).or_insert_with(|| Some(*record));
+                    self.memory_checkpoint.unit_table.entry(addr).or_insert_with(|| Some(*record));
                 }
                 Entry::Vacant(_) => {
-                    self.memory_checkpoint.page_table.entry(addr).or_insert(None);
+                    self.memory_checkpoint.unit_table.entry(addr).or_insert(None);
                 }
             }
         }
@@ -492,9 +496,9 @@ impl<'a> Executor<'a> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 // If addr has a specific value to be initialized with, use that, otherwise 0.
-                let value = self.state.uninitialized_memory.page_table.get(addr).unwrap_or(&0);
+                let value = self.state.uninitialized_memory.unit_table.get(addr).unwrap_or(&0);
                 self.uninitialized_memory_checkpoint
-                    .page_table
+                    .unit_table
                     .entry(addr)
                     .or_insert_with(|| *value != 0);
                 entry.insert(MemoryRecord { value: *value, shard: 0, timestamp: 0 })
@@ -678,15 +682,15 @@ impl<'a> Executor<'a> {
         local_memory_access: Option<&mut HashMap<u32, MemoryLocalEvent>>,
     ) -> MemoryWriteRecord {
         // Get the memory record entry.
-        let entry = self.state.memory.page_table.entry(addr);
+        let entry = self.state.memory.unit_table.entry(addr);
         if self.executor_mode == ExecutorMode::Checkpoint || self.unconstrained {
             match entry {
                 Entry::Occupied(ref entry) => {
                     let record = entry.get();
-                    self.memory_checkpoint.page_table.entry(addr).or_insert_with(|| Some(*record));
+                    self.memory_checkpoint.unit_table.entry(addr).or_insert_with(|| Some(*record));
                 }
                 Entry::Vacant(_) => {
-                    self.memory_checkpoint.page_table.entry(addr).or_insert(None);
+                    self.memory_checkpoint.unit_table.entry(addr).or_insert(None);
                 }
             }
         }
@@ -706,9 +710,9 @@ impl<'a> Executor<'a> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 // If addr has a specific value to be initialized with, use that, otherwise 0.
-                let value = self.state.uninitialized_memory.page_table.get(addr).unwrap_or(&0);
+                let value = self.state.uninitialized_memory.unit_table.get(addr).unwrap_or(&0);
                 self.uninitialized_memory_checkpoint
-                    .page_table
+                    .unit_table
                     .entry(addr)
                     .or_insert_with(|| *value != 0);
 
@@ -800,9 +804,9 @@ impl<'a> Executor<'a> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 // If addr has a specific value to be initialized with, use that, otherwise 0.
-                let value = self.state.uninitialized_memory.page_table.get(addr).unwrap_or(&0);
+                let value = self.state.uninitialized_memory.unit_table.get(addr).unwrap_or(&0);
                 self.uninitialized_memory_checkpoint
-                    .page_table
+                    .unit_table
                     .entry(addr)
                     .or_insert_with(|| *value != 0);
 
@@ -2542,7 +2546,7 @@ impl<'a> Executor<'a> {
                         .push(MemoryInitializeFinalizeEvent::finalize_from_record(addr, record));
                 }
             }
-            for addr in self.state.memory.page_table.keys() {
+            for addr in self.state.memory.unit_table.keys() {
                 self.report.touched_memory_addresses += 1;
                 if addr == 0 {
                     // Handled above.

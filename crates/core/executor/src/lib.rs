@@ -7,7 +7,10 @@ mod executor;
 pub mod hook;
 mod instruction;
 mod io;
+#[cfg(not(feature = "linear_memory"))]
 pub mod memory;
+#[cfg(feature = "linear_memory")]
+mod linearmemory;
 mod opcode;
 mod program;
 #[cfg(test)]

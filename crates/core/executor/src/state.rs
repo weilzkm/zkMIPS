@@ -9,11 +9,15 @@ use zkm_stark::{koala_bear_poseidon2::KoalaBearPoseidon2, StarkVerifyingKey};
 
 use crate::{
     events::MemoryRecord,
-    memory::Memory,
     record::{ExecutionRecord, MemoryAccessRecord},
     syscalls::SyscallCode,
     ExecutorMode, ZKMReduceProof,
 };
+
+#[cfg(not(feature = "linear_memory"))]
+use crate::memory::Memory;
+#[cfg(feature = "linear_memory")]
+use crate::linearmemory::Memory;
 
 /// Holds data describing the current state of a program's execution.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
