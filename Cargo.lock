@@ -8597,6 +8597,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "zkm-core-pure-executor"
+version = "1.2.3"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bytemuck",
+ "elf",
+ "enum-map",
+ "env_logger",
+ "eyre",
+ "hashbrown 0.14.5",
+ "hex",
+ "itertools 0.13.0",
+ "log",
+ "nohash-hasher",
+ "num",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-maybe-rayon",
+ "p3-symmetric",
+ "rand 0.8.5",
+ "rayon-scan",
+ "rrs-succinct",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strum",
+ "strum_macros",
+ "test-artifacts",
+ "thiserror 1.0.69",
+ "tiny-keccak",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "typenum",
+ "vec_map",
+ "zkm-curves",
+ "zkm-lib 1.2.3",
+ "zkm-primitives 1.2.3",
+ "zkm-stark",
+ "zkm-zkvm",
+]
+
+[[package]]
 name = "zkm-cuda"
 version = "1.2.3"
 dependencies = [

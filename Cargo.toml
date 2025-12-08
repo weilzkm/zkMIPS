@@ -12,6 +12,7 @@ members = [
     "crates/build",
     "crates/cli",
     "crates/core/executor",
+    "crates/core/pure_executor",
     "crates/core/machine",
     "crates/cuda",
     "crates/curves",
@@ -106,6 +107,7 @@ zkm-recursion-gnark-ffi = { path = "crates/recursion/gnark-ffi", default-feature
 zkm-recursion-compiler = { path = "crates/recursion/compiler" }
 zkm-recursion-core = { path = "crates/recursion/core" }
 zkm-core-executor = { path = "crates/core/executor", default-features = false }
+zkm-core-pure-executor = { path = "crates/core/pure_executor", default-features = false }
 zkm-core-machine = { path = "crates/core/machine", default-features = false }
 zkm-derive = { path = "crates/derive" }
 zkm-primitives = { path = "crates/primitives" }
