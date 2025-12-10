@@ -276,25 +276,28 @@ impl<V: Copy> PagedMemory<V> {
     #[inline]
     pub fn insert_mut(&mut self, addr: u32, value: V) -> &mut V {
         let (upper, lower) = Self::indices(addr);
-        let index = self.unit_table.len() as u16;
-        self.index[upper] = index;
-        self.unit_table.push(NewPage::new());
-        self.unit_table[index as usize].0[lower].replace(value);
-        self.unit_table[index as usize].0[lower].as_mut().unwrap()
+        let mut index = self.index[upper];
+        if index == NO_PAGE {
+            index = self.page_table.len() as u16;
+            self.index[upper] = index;
+            self.page_table.push(NewPage::new());
+        }
+        self.page_table[index as usize].0[lower].replace(value);
+        self.page_table[index as usize].0[lower].as_mut().unwrap()
     }
 
     pub fn or_insert(&mut self, addr: u32, value: V) {
         let (upper, lower) = Self::indices(addr);
         let mut index = self.index[upper];
         if index == NO_PAGE {
-            index = self.unit_table.len() as u16;
+            index = self.page_table.len() as u16;
             self.index[upper] = index;
-            self.unit_table.push(NewPage::new());
-            self.unit_table[index as usize].0[lower].replace(value);
+            self.page_table.push(NewPage::new());
+            self.page_table[index as usize].0[lower].replace(value);
         } else {
-            let option = self.unit_table[index as usize].0[lower];
+            let option = self.page_table[index as usize].0[lower];
             if option.is_none() {
-                self.unit_table[index as usize].0[lower].replace(value);
+                self.page_table[index as usize].0[lower].replace(value);
             }
         }
     }

@@ -71,14 +71,14 @@ impl Syscall for HintReadSyscall {
 
             // Save the data into runtime state so the runtime will use the desired data instead of
             // 0 when first reading/writing from this address.
-            ctx.rt.uninitialized_memory_checkpoint.unit_table.or_insert(ptr+i, false);
-            match ctx.rt.state.uninitialized_memory.unit_table.get(ptr + i) {
+            ctx.rt.uninitialized_memory_checkpoint.page_table.or_insert(ptr+i, false);
+            match ctx.rt.state.uninitialized_memory.page_table.get(ptr + i) {
                 Some(_) => {
                     log::error!("hint read address is initialized already");
                     return Err(ExecutionError::InvalidSyscallArgs());
                 }
                 None => {
-                    ctx.rt.state.uninitialized_memory.unit_table.insert(ptr+i, word);
+                    ctx.rt.state.uninitialized_memory.page_table.insert(ptr+i, word);
                 }
             }
         }

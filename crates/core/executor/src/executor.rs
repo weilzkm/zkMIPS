@@ -420,10 +420,10 @@ impl<'a> Executor<'a> {
         if self.executor_mode == ExecutorMode::Checkpoint || self.unconstrained {
             match record {
                 Some(ref v) => {
-                    self.memory_checkpoint.unit_table.or_insert(addr, Some(**v));
+                    self.memory_checkpoint.page_table.or_insert(addr, Some(**v));
                 }
                 None => {
-                    self.memory_checkpoint.unit_table.or_insert(addr, None);
+                    self.memory_checkpoint.page_table.or_insert(addr, None);
                 }
             }
         }
@@ -464,14 +464,14 @@ impl<'a> Executor<'a> {
         local_memory_access: Option<&mut HashMap<u32, MemoryLocalEvent>>,
     ) -> MemoryReadRecord {
         // Get the memory record entry.
-        let record = self.state.memory.unit_table.get_mut(addr);
+        let record = self.state.memory.page_table.get_mut(addr);
         if self.executor_mode == ExecutorMode::Checkpoint || self.unconstrained {
             match record {
                 Some(ref v) => {
-                    self.memory_checkpoint.unit_table.or_insert(addr, Some(**v));
+                    self.memory_checkpoint.page_table.or_insert(addr, Some(**v));
                 }
                 None => {
-                    self.memory_checkpoint.unit_table.or_insert(addr, None);
+                    self.memory_checkpoint.page_table.or_insert(addr, None);
                 }
             }
         }
@@ -493,9 +493,9 @@ impl<'a> Executor<'a> {
                 // If addr has a specific value to be initialized with, use that, otherwise 0.
                 let value = self.state.uninitialized_memory.page_table.get(addr).unwrap_or(&0);
                 self.uninitialized_memory_checkpoint
-                    .unit_table
+                    .page_table
                     .or_insert(addr, *value != 0);
-                self.state.memory.unit_table.insert_mut(addr, MemoryRecord { value: *value, shard: 0, timestamp: 0 })
+                self.state.memory.page_table.insert_mut(addr, MemoryRecord { value: *value, shard: 0, timestamp: 0 })
             }
         };
 
@@ -674,14 +674,14 @@ impl<'a> Executor<'a> {
         local_memory_access: Option<&mut HashMap<u32, MemoryLocalEvent>>,
     ) -> MemoryWriteRecord {
         // Get the memory record entry.
-        let record = self.state.memory.unit_table.get_mut(addr);
+        let record = self.state.memory.page_table.get_mut(addr);
         if self.executor_mode == ExecutorMode::Checkpoint || self.unconstrained {
             match record {
                 Some(ref v) => {
-                    self.memory_checkpoint.unit_table.or_insert(addr, Some(**v));
+                    self.memory_checkpoint.page_table.or_insert(addr, Some(**v));
                 }
                 None => {
-                    self.memory_checkpoint.unit_table.or_insert(addr, None);
+                    self.memory_checkpoint.page_table.or_insert(addr, None);
                 }
             }
         }
@@ -702,9 +702,9 @@ impl<'a> Executor<'a> {
                 // If addr has a specific value to be initialized with, use that, otherwise 0.
                 let value = self.state.uninitialized_memory.page_table.get(addr).unwrap_or(&0);
                 self.uninitialized_memory_checkpoint
-                    .unit_table
+                    .page_table
                     .or_insert(addr, *value != 0);
-                self.state.memory.unit_table.insert_mut(addr, MemoryRecord { value: *value, shard: 0, timestamp: 0 })
+                self.state.memory.page_table.insert_mut(addr, MemoryRecord { value: *value, shard: 0, timestamp: 0 })
             }
         };
 
@@ -2353,7 +2353,7 @@ impl<'a> Executor<'a> {
     pub fn run_fast(&mut self) -> Result<(), ExecutionError> {
         self.executor_mode = ExecutorMode::Simple;
         self.print_report = true;
-        while !self.execute()? {}
+        while !self.execute_state(false)?.1 == false {}
         Ok(())
     }
 
