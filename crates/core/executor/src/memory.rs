@@ -276,9 +276,12 @@ impl<V: Copy> PagedMemory<V> {
     #[inline]
     pub fn insert_mut(&mut self, addr: u32, value: V) -> &mut V {
         let (upper, lower) = Self::indices(addr);
-        let index = self.unit_table.len() as u16;
-        self.index[upper] = index;
-        self.unit_table.push(NewPage::new());
+        let mut index = self.index[upper];
+        if index == NO_PAGE {
+            index = self.unit_table.len() as u16;
+            self.index[upper] = index;
+            self.unit_table.push(NewPage::new());
+        }
         self.unit_table[index as usize].0[lower].replace(value);
         self.unit_table[index as usize].0[lower].as_mut().unwrap()
     }
