@@ -38,19 +38,6 @@ impl<T: Copy> Memory<T> {
         Self { registers: Registers::default(), unit_table: WordMemory::new_preallocated() }
     }
 
-    /// Get an entry for the given address.
-    ///
-    /// When possible, prefer directly accessing the `unit_table` or `registers` fields.
-    /// This method often incurs unnecessary branching.
-    #[inline]
-    pub fn entry(&mut self, addr: u32) -> Entry<'_, T> {
-        if addr < NUM_REGISTERS as u32 {
-            self.registers.entry(addr)
-        } else {
-            self.unit_table.entry(addr)
-        }
-    }
-
     /// Insert a value into the memory.
     ///
     /// When possible, prefer directly accessing the `unit_table` or `registers` fields.
@@ -123,13 +110,11 @@ impl<T: Copy> Default for Registers<T> {
 }
 
 impl<T: Copy> Registers<T> {
-    /// Get an entry for the given register.
     #[inline]
-    pub fn entry(&mut self, addr: u32) -> Entry<'_, T> {
-        let entry = &mut self.registers[addr as usize];
-        match entry {
-            Some(v) => Entry::Occupied(OccupiedEntry { entry: v }),
-            None => Entry::Vacant(VacantEntry { entry }),
+    pub fn or_insert(&mut self, addr: u32, value: T) {
+        let option = self.registers[addr as usize];
+        if option.is_none() {
+            self.registers[addr as usize] = Some(value);
         }
     }
 
@@ -139,6 +124,12 @@ impl<T: Copy> Registers<T> {
     #[inline]
     pub fn insert(&mut self, addr: u32, value: T) -> Option<T> {
         self.registers[addr as usize].replace(value)
+    }
+
+    #[inline]
+    pub fn insert_mut(&mut self, addr: u32, value: T) -> &mut T {
+        self.registers[addr as usize] = Some(value);
+        self.registers[addr as usize].as_mut().unwrap()
     }
 
     /// Remove a value from the registers, and return it if it exists.
@@ -155,6 +146,11 @@ impl<T: Copy> Registers<T> {
     #[inline]
     pub fn get(&self, addr: u32) -> Option<&T> {
         self.registers[addr as usize].as_ref()
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, addr: u32) -> Option<&mut T> {
+        self.registers[addr as usize].as_mut()
     }
 
     /// Clear the registers.
@@ -234,18 +230,22 @@ impl<V: Copy> WordMemory<V> {
         self.unit_table[addr as usize >> 2].replace(value)
     }
 
+    /// Insert a value at the given address. Returns the previous value, if any.
+    #[inline]
+    pub fn insert_mut(&mut self, addr: u32, value: V) -> & mut V {
+        self.unit_table[addr as usize >> 2].replace(value);
+        self.unit_table[addr as usize >> 2].as_mut().unwrap()
+    }
+
     /// Remove the value at the given address if it exists, returning it.
     pub fn remove(&mut self, addr: u32) -> Option<V> {
         self.unit_table[addr as usize >> 2].take()
     }
 
-    /// Gets the memory entry for the given address.
-    #[inline]
-    pub fn entry(&mut self, addr: u32) -> Entry<'_, V> {
+    pub fn or_insert(&mut self, addr: u32, value: V){
         let entry = &mut self.unit_table[addr as usize >> 2];
-        match entry {
-            Some(v) => Entry::Occupied(OccupiedEntry { entry: v }),
-            None => Entry::Vacant(VacantEntry { entry }),
+        if entry.is_none() {
+            self.unit_table[addr as usize >> 2].replace(value);
         }
     }
 

@@ -38,19 +38,6 @@ impl<T: Copy> Memory<T> {
         Self { registers: Registers::default(), unit_table: PagedMemory::new_preallocated() }
     }
 
-    /// Get an entry for the given address.
-    ///
-    /// When possible, prefer directly accessing the `unit_table` or `registers` fields.
-    /// This method often incurs unnecessary branching.
-    #[inline]
-    pub fn entry(&mut self, addr: u32) -> Entry<'_, T> {
-        if addr < NUM_REGISTERS as u32 {
-            self.registers.entry(addr)
-        } else {
-            self.unit_table.entry(addr)
-        }
-    }
-
     /// Insert a value into the memory.
     ///
     /// When possible, prefer directly accessing the `unit_table` or `registers` fields.
@@ -123,22 +110,25 @@ impl<T: Copy> Default for Registers<T> {
 }
 
 impl<T: Copy> Registers<T> {
-    /// Get an entry for the given register.
-    #[inline]
-    pub fn entry(&mut self, addr: u32) -> Entry<'_, T> {
-        let entry = &mut self.registers[addr as usize];
-        match entry {
-            Some(v) => Entry::Occupied(OccupiedEntry { entry: v }),
-            None => Entry::Vacant(VacantEntry { entry }),
-        }
-    }
-
     /// Insert a value into the registers.
     ///
     /// Assumes addr < NUM_REGISTERS.
-    #[inline]
     pub fn insert(&mut self, addr: u32, value: T) -> Option<T> {
         self.registers[addr as usize].replace(value)
+    }
+
+    #[inline]
+    pub fn insert_mut(&mut self, addr: u32, value: T) -> &mut T {
+        self.registers[addr as usize] = Some(value);
+        self.registers[addr as usize].as_mut().unwrap()
+    }
+
+    #[inline]
+    pub fn or_insert(&mut self, addr: u32, value: T) {
+        let option = self.registers[addr as usize];
+        if option.is_none() {
+            self.registers[addr as usize] = Some(value);
+        }
     }
 
     /// Remove a value from the registers, and return it if it exists.
@@ -155,6 +145,11 @@ impl<T: Copy> Registers<T> {
     #[inline]
     pub fn get(&self, addr: u32) -> Option<&T> {
         self.registers[addr as usize].as_ref()
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, addr: u32) -> Option<&mut T> {
+        self.registers[addr as usize].as_mut()
     }
 
     /// Clear the registers.
@@ -277,6 +272,33 @@ impl<V: Copy> PagedMemory<V> {
         self.unit_table[index as usize].0[lower].replace(value)
     }
 
+    /// Insert a value at the given address. Returns the , if any.
+    #[inline]
+    pub fn insert_mut(&mut self, addr: u32, value: V) -> &mut V {
+        let (upper, lower) = Self::indices(addr);
+        let index = self.unit_table.len() as u16;
+        self.index[upper] = index;
+        self.unit_table.push(NewPage::new());
+        self.unit_table[index as usize].0[lower].replace(value);
+        self.unit_table[index as usize].0[lower].as_mut().unwrap()
+    }
+
+    pub fn or_insert(&mut self, addr: u32, value: V) {
+        let (upper, lower) = Self::indices(addr);
+        let mut index = self.index[upper];
+        if index == NO_PAGE {
+            index = self.unit_table.len() as u16;
+            self.index[upper] = index;
+            self.unit_table.push(NewPage::new());
+            self.unit_table[index as usize].0[lower].replace(value);
+        } else {
+            let option = self.unit_table[index as usize].0[lower];
+            if option.is_none() {
+                self.unit_table[index as usize].0[lower].replace(value);
+            }
+        }
+    }
+
     /// Remove the value at the given address if it exists, returning it.
     pub fn remove(&mut self, addr: u32) -> Option<V> {
         let (upper, lower) = Self::indices(addr);
@@ -285,25 +307,6 @@ impl<V: Copy> PagedMemory<V> {
             None
         } else {
             self.unit_table[index as usize].0[lower].take()
-        }
-    }
-
-    /// Gets the memory entry for the given address.
-    #[inline]
-    pub fn entry(&mut self, addr: u32) -> Entry<'_, V> {
-        let (upper, lower) = Self::indices(addr);
-        let index = self.index[upper];
-        if index == NO_PAGE {
-            let index = self.unit_table.len();
-            self.index[upper] = index as u16;
-            self.unit_table.push(NewPage::new());
-            Entry::Vacant(VacantEntry { entry: &mut self.unit_table[index].0[lower] })
-        } else {
-            let option = &mut self.unit_table[index as usize].0[lower];
-            match option {
-                Some(v) => Entry::Occupied(OccupiedEntry { entry: v }),
-                None => Entry::Vacant(VacantEntry { entry: option }),
-            }
         }
     }
 
@@ -363,91 +366,6 @@ impl<V: Copy> PagedMemory<V> {
 impl<V: Copy> Default for PagedMemory<V> {
     fn default() -> Self {
         Self { unit_table: Vec::new(), index: vec![NO_PAGE; MAX_PAGE_COUNT] }
-    }
-}
-
-/// An entry of `PagedMemory` or `Registers`, for in-place manipulation.
-pub enum Entry<'a, V: Copy> {
-    Vacant(VacantEntry<'a, V>),
-    Occupied(OccupiedEntry<'a, V>),
-}
-
-impl<'a, V: Copy> Entry<'a, V> {
-    /// Ensures a value is in the entry, inserting the provided value if necessary.
-    /// Returns a mutable reference to the value.
-    pub fn or_insert(self, default: V) -> &'a mut V {
-        match self {
-            Entry::Vacant(entry) => entry.insert(default),
-            Entry::Occupied(entry) => entry.into_mut(),
-        }
-    }
-
-    /// Ensures a value is in the entry, computing a value if necessary.
-    /// Returns a mutable reference to the value.
-    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
-        match self {
-            Entry::Vacant(entry) => entry.insert(default()),
-            Entry::Occupied(entry) => entry.into_mut(),
-        }
-    }
-
-    /// Provides in-place mutable access to an occupied entry before any potential inserts into the
-    /// map.
-    pub fn and_modify<F: FnOnce(&mut V)>(mut self, f: F) -> Self {
-        match &mut self {
-            Entry::Vacant(_) => {}
-            Entry::Occupied(entry) => f(entry.get_mut()),
-        }
-        self
-    }
-}
-
-/// A vacant entry, for in-place manipulation.
-pub struct VacantEntry<'a, V: Copy> {
-    entry: &'a mut Option<V>,
-}
-
-impl<'a, V: Copy> VacantEntry<'a, V> {
-    /// Insert a value into the `VacantEntry`, returning a mutable reference to it.
-    pub fn insert(self, value: V) -> &'a mut V {
-        // By construction, the slot in the page is `None`.
-        *self.entry = Some(value);
-        self.entry.as_mut().unwrap()
-    }
-}
-
-/// An occupied entry, for in-place manipulation.
-pub struct OccupiedEntry<'a, V> {
-    entry: &'a mut V,
-}
-
-impl<'a, V: Copy> OccupiedEntry<'a, V> {
-    /// Get a reference to the value in the `OccupiedEntry`.
-    #[inline]
-    pub fn get(&self) -> &V {
-        self.entry
-    }
-
-    /// Get a mutable reference to the value in the `OccupiedEntry`.
-    #[inline]
-    pub fn get_mut(&mut self) -> &mut V {
-        self.entry
-    }
-
-    /// Insert a value in the `OccupiedEntry`, returning the previous value.
-    #[inline]
-    pub fn insert(&mut self, value: V) -> V {
-        std::mem::replace(self.entry, value)
-    }
-
-    /// Converts the `OccupiedEntry` the into a mutable reference to the associated value.
-    pub fn into_mut(self) -> &'a mut V {
-        self.entry
-    }
-
-    /// Removes the value from the `OccupiedEntry` and returns it.
-    pub fn remove(self) -> V {
-        *self.entry
     }
 }
 
