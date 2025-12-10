@@ -1,5 +1,4 @@
 use super::{Syscall, SyscallCode, SyscallContext};
-use crate::memory::Entry;
 use crate::ExecutionError;
 
 pub(crate) struct HintLenSyscall;
@@ -72,14 +71,14 @@ impl Syscall for HintReadSyscall {
 
             // Save the data into runtime state so the runtime will use the desired data instead of
             // 0 when first reading/writing from this address.
-            ctx.rt.uninitialized_memory_checkpoint.entry(ptr + i).or_insert_with(|| false);
-            match ctx.rt.state.uninitialized_memory.entry(ptr + i) {
-                Entry::Occupied(_entry) => {
+            ctx.rt.uninitialized_memory_checkpoint.unit_table.or_insert(ptr+i, false);
+            match ctx.rt.state.uninitialized_memory.unit_table.get(ptr + i) {
+                Some(_) => {
                     log::error!("hint read address is initialized already");
                     return Err(ExecutionError::InvalidSyscallArgs());
                 }
-                Entry::Vacant(entry) => {
-                    entry.insert(word);
+                None => {
+                    ctx.rt.state.uninitialized_memory.unit_table.insert(ptr+i, word);
                 }
             }
         }
