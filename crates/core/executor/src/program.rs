@@ -21,7 +21,7 @@ use zkm_stark::septic_extension::SepticExtension;
 use zkm_stark::shape::Shape;
 use zkm_stark::LookupKind;
 
-use crate::{Instruction, MipsAirId, Register};
+use crate::{Instruction, MipsAirId, Register, NUM_REGISTERS};
 
 pub const MAX_MEMORY: usize = 0x7F000000;
 pub const MAX_CODE_MEMORY: usize = 0x3F000000;
@@ -148,6 +148,9 @@ impl Program {
             }
         }
 
+        for i in 0..NUM_REGISTERS as u32 {
+            image.insert(i, 0);
+        }
         image.insert(Register::BRK as u32, hiaddr); // $brk
         image.insert(Register::HEAP as u32, 0x20000000); // $heap
 

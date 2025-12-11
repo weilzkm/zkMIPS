@@ -1,5 +1,5 @@
 use zkm_sdk::{include_elf, utils, ProverClient, ZKMProofWithPublicValues, ZKMStdin};
-
+use std::time::{Duration, Instant};
 /// The ELF we want to execute inside the zkVM.
 const ELF: &[u8] = include_elf!("fibonacci");
 
@@ -8,7 +8,7 @@ fn main() {
     utils::setup_logger();
 
     // Create an input stream and write '1000' to it.
-    let n = 1000u32;
+    let n = 100000000u32;
 
     // The input stream that the guest will read from using `zkm_zkvm::io::read`. Note that the
     // types of the elements in the input stream must match the types being read in the guest.
@@ -17,10 +17,12 @@ fn main() {
 
     // Create a `ProverClient` method.
     let client = ProverClient::new();
-
+    let start = Instant::now();
     // Execute the guest using the `ProverClient.execute` method, without generating a proof.
     let (_, report) = client.execute(ELF, stdin.clone()).run().unwrap();
-    println!("executed program with {} cycles", report.total_instruction_count());
+    let end = Instant::now();
+    let duration = end.duration_since(start);   
+    println!("executed program with {} cycles, {} seconds", report.total_instruction_count(), duration.as_secs_f64());
 
     // Generate the proof for the given guest and input.
     let (pk, vk) = client.setup(ELF);

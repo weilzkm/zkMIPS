@@ -58,7 +58,7 @@ impl<T: Copy> Memory<T> {
     #[inline]
     pub fn get(&self, addr: u32) -> Option<&T> {
         if addr < NUM_REGISTERS as u32 {
-            self.registers.get(addr)
+            Some(self.registers.get(addr))
         } else {
             self.page_table.get(addr)
         }
@@ -113,6 +113,7 @@ impl<T: Copy> Registers<T> {
     /// Insert a value into the registers.
     ///
     /// Assumes addr < NUM_REGISTERS.
+    #[inline]
     pub fn insert(&mut self, addr: u32, value: T) -> Option<T> {
         self.registers[addr as usize].replace(value)
     }
@@ -143,13 +144,13 @@ impl<T: Copy> Registers<T> {
     ///
     /// Assumes addr < NUM_REGISTERS.
     #[inline]
-    pub fn get(&self, addr: u32) -> Option<&T> {
-        self.registers[addr as usize].as_ref()
+    pub fn get(&self, addr: u32) -> &T {
+        self.registers[addr as usize].as_ref().unwrap()
     }
 
     #[inline]
-    pub fn get_mut(&mut self, addr: u32) -> Option<&mut T> {
-        self.registers[addr as usize].as_mut()
+    pub fn get_mut(&mut self, addr: u32) -> &mut T {
+        self.registers[addr as usize].as_mut().unwrap()
     }
 
     /// Clear the registers.
@@ -238,6 +239,7 @@ impl<V: Copy> PagedMemory<V> {
     }
 
     /// Get a reference to the memory value at the given address, if it exists.
+    #[inline]
     pub fn get(&self, addr: u32) -> Option<&V> {
         let (upper, lower) = Self::indices(addr);
         let index = self.index[upper];
@@ -249,6 +251,7 @@ impl<V: Copy> PagedMemory<V> {
     }
 
     /// Get a mutable reference to the memory value at the given address, if it exists.
+    #[inline]
     pub fn get_mut(&mut self, addr: u32) -> Option<&mut V> {
         let (upper, lower) = Self::indices(addr);
         let index = self.index[upper];
@@ -286,6 +289,7 @@ impl<V: Copy> PagedMemory<V> {
         self.page_table[index as usize].0[lower].as_mut().unwrap()
     }
 
+    #[inline]
     pub fn or_insert(&mut self, addr: u32, value: V) {
         let (upper, lower) = Self::indices(addr);
         let mut index = self.index[upper];
@@ -303,6 +307,7 @@ impl<V: Copy> PagedMemory<V> {
     }
 
     /// Remove the value at the given address if it exists, returning it.
+    #[inline]
     pub fn remove(&mut self, addr: u32) -> Option<V> {
         let (upper, lower) = Self::indices(addr);
         let index = self.index[upper];
@@ -314,6 +319,7 @@ impl<V: Copy> PagedMemory<V> {
     }
 
     /// Returns an iterator over the occupied addresses.
+    #[inline]
     pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
         self.index.iter().enumerate().filter(|(_, &i)| i != NO_PAGE).flat_map(|(i, index)| {
             let upper = i << LOG_PAGE_LEN;
@@ -327,6 +333,7 @@ impl<V: Copy> PagedMemory<V> {
 
     /// Get the exact number of addresses in use. This function iterates through each page
     /// and is therefore somewhat expensive.
+    #[inline]
     pub fn exact_len(&self) -> usize {
         self.index
             .iter()
@@ -336,11 +343,13 @@ impl<V: Copy> PagedMemory<V> {
     }
 
     /// Estimate the number of addresses in use.
+    #[inline]
     pub fn estimate_len(&self) -> usize {
         self.index.iter().filter(|&i| *i != NO_PAGE).count() * PAGE_LEN
     }
 
     /// Clears the page table. Drops all `Page`s, but retains the memory used by the table itself.
+    #[inline]
     pub fn clear(&mut self) {
         self.page_table.clear();
         self.index.fill(NO_PAGE);
