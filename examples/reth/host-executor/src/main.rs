@@ -20,7 +20,7 @@ fn prove_reth() {
     let duration = end.duration_since(start);
 
     println!("executed program with {} cycles, {} seconds", report.total_instruction_count(), duration.as_secs_f64());
-
+/*
     // Generate the proof for the given guest and input.
     let (pk, vk) = client.setup(ELF);
     let proof = client.prove(&pk, stdin).compressed().run().unwrap();
@@ -38,6 +38,7 @@ fn prove_reth() {
     client.verify(&deserialized_proof, &vk).expect("verification failed");
 
     println!("successfully generated and verified proof for the program!")
+ */
 }
 
 fn main() {

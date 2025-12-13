@@ -35,6 +35,7 @@ use crate::{
     ExecutionReport, Instruction, MaximalShapes, MipsAirId, Opcode, Program, Register,
     NUM_REGISTERS,
 };
+use std::time::{Duration, Instant};
 
 /// The maximum number of instructions in a program.
 pub const MAX_PROGRAM_SIZE: usize = 1 << 22;
@@ -189,6 +190,8 @@ pub struct LocalCounts {
     pub syscalls_sent: usize,
     /// The number of addresses touched in this shard.
     pub local_mem: usize,
+    pub syscalls: usize,
+    pub syscall_counts: Box<EnumMap<SyscallCode, usize>>,
 }
 
 /// Errors that the [``Executor``] can throw.
@@ -1351,8 +1354,8 @@ impl<'a> Executor<'a> {
             b = self.rr_cpu(Register::A0, MemoryAccessPosition::B);
             let syscall = SyscallCode::from_u32(syscall_id);
             let mut prev_a = syscall_id;
-            log::trace!("pc: {:X} syscall {}, a0: {:X}, a1: {:X}", self.state.pc, syscall_id, b, c);
-
+            //println!("syscall {}", syscall);
+            let start = Instant::now();
             if self.print_report && !self.unconstrained {
                 self.report.syscall_counts[syscall] += 1;
             }
@@ -1428,6 +1431,11 @@ impl<'a> Executor<'a> {
             self.state.clk += precompile_cycles;
             exit_code = returned_exit_code;
             hi_or_prev_a = Some(prev_a);
+
+            let end = Instant::now();
+            let duration = end.duration_since(start);
+            self.local_counts.syscall_counts[syscall] += duration.as_nanos() as usize;
+            self.local_counts.syscalls += duration.as_nanos() as usize;
         } else if instruction.opcode == Opcode::UNIMPL {
             log::error!("{:X}: {:X}", self.state.pc, instruction.op_c);
             return Err(ExecutionError::UnsupportedInstruction(instruction.op_c));
@@ -2066,6 +2074,7 @@ impl<'a> Executor<'a> {
 
     /// Bump the record.
     pub fn bump_record(&mut self) {
+        println!("bumping record: {:?}", self.local_counts);
         self.local_counts = LocalCounts::default();
         // Copy all of the existing local memory accesses to the record's local_memory_access vec.
         if self.executor_mode == ExecutorMode::Trace {
@@ -2113,6 +2122,7 @@ impl<'a> Executor<'a> {
         &mut self,
         emit_global_memory_events: bool,
     ) -> Result<(ExecutionState, bool), ExecutionError> {
+        let start = Instant::now();
         self.memory_checkpoint.clear();
         self.executor_mode = ExecutorMode::Checkpoint;
         self.emit_global_memory_events = emit_global_memory_events;
@@ -2134,10 +2144,17 @@ impl<'a> Executor<'a> {
         for i in 0..NUM_REGISTERS as u32 {
              self.memory_checkpoint.registers.insert(i, Some(*self.state.memory.registers.get(i)));
         }
+        let stage1 = Instant::now();
+        let duration = stage1.duration_since(start);
 
+        println!("execute state stage1 with {} seconds", duration.as_secs_f64());
         let done = tracing::debug_span!("execute").in_scope(|| self.execute())?;
         // Create a checkpoint using `memory_checkpoint`. Just include all memory if `done` since we
         // need it all for MemoryFinalize.
+        let stage2 = Instant::now();
+        let duration = stage2.duration_since(stage1);
+
+        println!("execute state stage2 with {} seconds", duration.as_secs_f64());
         tracing::debug_span!("create memory checkpoint").in_scope(|| {
             let memory_checkpoint = std::mem::take(&mut self.memory_checkpoint);
             let uninitialized_memory_checkpoint =
@@ -2176,6 +2193,10 @@ impl<'a> Executor<'a> {
         if !done {
             self.records.clear();
         }
+        let stage3 = Instant::now();
+        let duration = stage3.duration_since(stage2);
+
+        println!("execute state stage3 with {} seconds", duration.as_secs_f64());
         Ok((checkpoint, done))
     }
 
@@ -2207,10 +2228,17 @@ impl<'a> Executor<'a> {
     pub fn run_fast(&mut self) -> Result<(), ExecutionError> {
         self.executor_mode = ExecutorMode::Simple;
         self.print_report = true;
+        let start = Instant::now();
         if self.state.global_clk == 0 {
             self.initialize();
         }
+        
         while !self.execute_state(false)?.1 {}
+        let end = Instant::now();
+        let duration = end.duration_since(start);
+
+        println!("execute state with {} seconds", duration.as_secs_f64());
+
         Ok(())
     }
 
