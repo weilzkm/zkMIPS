@@ -448,19 +448,19 @@ impl<F: PrimeField32> MipsAir<F> {
     pub fn core_heights(record: &ExecutionRecord) -> Vec<(MipsAirId, usize)> {
         vec![
             (MipsAirId::Cpu, record.cpu_events.len()),
-            (MipsAirId::Branch, record.branch_events.len()),
-            (MipsAirId::Jump, record.jump_events.len()),
-            (MipsAirId::MovCond, record.movcond_events.len()),
-            (MipsAirId::MiscInstrs, record.misc_events.len()),
-            (MipsAirId::MemoryInstrs, record.memory_instr_events.len()),
-            (MipsAirId::SyscallInstrs, record.syscall_events.len()),
-            (MipsAirId::DivRem, record.divrem_events.len()),
-            (MipsAirId::AddSub, record.add_sub_events.len()),
-            (MipsAirId::Bitwise, record.bitwise_events.len()),
-            (MipsAirId::Mul, record.mul_events.len()),
-            (MipsAirId::ShiftRight, record.shift_right_events.len()),
-            (MipsAirId::ShiftLeft, record.shift_left_events.len()),
-            (MipsAirId::Lt, record.lt_events.len()),
+            (MipsAirId::Branch, record.instrs_record.branch_events.len()),
+            (MipsAirId::Jump, record.instrs_record.jump_events.len()),
+            (MipsAirId::MovCond, record.instrs_record.movcond_events.len()),
+            (MipsAirId::MiscInstrs, record.instrs_record.misc_events.len()),
+            (MipsAirId::MemoryInstrs, record.instrs_record.memory_instr_events.len()),
+            (MipsAirId::SyscallInstrs, record.instrs_record.syscall_events.len()),
+            (MipsAirId::DivRem, record.instrs_record.divrem_events.len()),
+            (MipsAirId::AddSub, record.instrs_record.add_sub_events.len()),
+            (MipsAirId::Bitwise, record.instrs_record.bitwise_events.len()),
+            (MipsAirId::Mul, record.instrs_record.mul_events.len()),
+            (MipsAirId::ShiftRight, record.instrs_record.shift_right_events.len()),
+            (MipsAirId::ShiftLeft, record.instrs_record.shift_left_events.len()),
+            (MipsAirId::Lt, record.instrs_record.lt_events.len()),
             (
                 MipsAirId::MemoryLocal,
                 record
@@ -469,12 +469,12 @@ impl<F: PrimeField32> MipsAir<F> {
                     .into_iter()
                     .count(),
             ),
-            (MipsAirId::CloClz, record.cloclz_events.len()),
+            (MipsAirId::CloClz, record.instrs_record.cloclz_events.len()),
             (
                 MipsAirId::Global,
-                2 * record.get_local_mem_events().count() + record.syscall_events.len(),
+                2 * record.get_local_mem_events().count() + record.instrs_record.syscall_events.len(),
             ),
-            (MipsAirId::SyscallCore, record.syscall_events.len()),
+            (MipsAirId::SyscallCore, record.instrs_record.syscall_events.len()),
         ]
     }
 

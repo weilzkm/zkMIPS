@@ -87,6 +87,7 @@ impl<F: PrimeField32> MachineAir<F> for SyscallChip {
     fn generate_dependencies(&self, input: &ExecutionRecord, output: &mut ExecutionRecord) {
         let events = match self.shard_kind {
             SyscallShardKind::Core => &input
+                .instrs_record
                 .syscall_events
                 .iter()
                 .filter(|e| {
@@ -115,7 +116,7 @@ impl<F: PrimeField32> MachineAir<F> for SyscallChip {
 
     fn num_rows(&self, input: &Self::Record) -> Option<usize> {
         let events = match self.shard_kind() {
-            SyscallShardKind::Core => &input.syscall_events,
+            SyscallShardKind::Core => &input.instrs_record.syscall_events,
             SyscallShardKind::Precompile => &input
                 .precompile_events
                 .all_events()
@@ -149,6 +150,7 @@ impl<F: PrimeField32> MachineAir<F> for SyscallChip {
 
         let mut rows = match self.shard_kind {
             SyscallShardKind::Core => input
+                .instrs_record
                 .syscall_events
                 .par_iter()
                 .filter(|event| {
@@ -182,6 +184,7 @@ impl<F: PrimeField32> MachineAir<F> for SyscallChip {
             match self.shard_kind {
                 SyscallShardKind::Core => {
                     shard
+                        .instrs_record
                         .syscall_events
                         .iter()
                         .filter(|e| {

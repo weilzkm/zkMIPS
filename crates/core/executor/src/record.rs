@@ -27,11 +27,7 @@ use crate::{
 /// The trace of the execution is represented as a list of "events" that occur every cycle.
 // todo: add logic opcode here, use bitwise_events
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct ExecutionRecord {
-    /// The program.
-    pub program: Arc<Program>,
-    /// A trace of the CPU events which get emitted during execution.
-    pub cpu_events: Vec<CpuEvent>,
+pub struct InstrsRecord {
     /// A trace of the ADD, ADDU, ADDI, ADDIU, SUB and SUBU events.
     pub add_sub_events: Vec<AluEvent>,
     /// A trace of the MUL, MULT and MULTU events.
@@ -58,8 +54,20 @@ pub struct ExecutionRecord {
     pub movcond_events: Vec<MovCondEvent>,
     /// A trace of the misc events.
     pub misc_events: Vec<MiscEvent>,
+    /// A trace of all the syscall events.
+    pub syscall_events: Vec<SyscallEvent>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ExecutionRecord {
+    /// The program.
+    pub program: Arc<Program>,
+    /// A trace of the CPU events which get emitted during execution.
+    pub cpu_events: Vec<CpuEvent>,
     /// A trace of the byte lookups that are needed.
     pub byte_lookups: HashMap<ByteLookupEvent, usize>,
+    /// A trace record of instruction specific events
+    pub instrs_record: InstrsRecord,
     /// A trace of the precompile events.
     pub precompile_events: PrecompileEvents,
     // /// A trace of the global memory initialize events.
@@ -68,8 +76,6 @@ pub struct ExecutionRecord {
     pub global_memory_finalize_events: Vec<MemoryInitializeFinalizeEvent>,
     /// A trace of all the shard's local memory events.
     pub cpu_local_memory_access: Vec<MemoryLocalEvent>,
-    /// A trace of all the syscall events.
-    pub syscall_events: Vec<SyscallEvent>,
     /// A trace of all the global lookup events.
     pub global_lookup_events: Vec<GlobalLookupEvent>,
     /// The public values.
@@ -80,31 +86,49 @@ pub struct ExecutionRecord {
     pub counts: Option<EnumMap<MipsAirId, u64>>,
 }
 
+impl InstrsRecord {
+    /// Create a new [`InstrsRecord`].
+    #[must_use]
+    #[cfg(feature = "pre-alloc")]
+    pub fn new() -> Self {
+        let add_sub_events = Vec::with_capacity(1 << 22);
+        let memory_instr_events = Vec::with_capacity(1 << 21);
+        Self { memory_instr_events, add_sub_events, ..Default::default() }
+    }
+
+    #[must_use]
+    #[cfg(not(feature = "pre-alloc"))]
+    pub fn new() -> Self {
+        Self { ..Default::default() }
+    }
+
+    /// Add a mul event to the execution record.
+    #[inline]
+    pub fn add_mul_event(&mut self, mul_event: CompAluEvent) {
+        self.mul_events.push(mul_event);
+    }
+
+    /// Add a lt event to the execution record.
+    #[inline]
+    pub fn add_lt_event(&mut self, lt_event: AluEvent) {
+        self.lt_events.push(lt_event);
+    }
+}
+
 impl ExecutionRecord {
     /// Create a new [`ExecutionRecord`].
     #[must_use]
     #[cfg(feature = "pre-alloc")]
     pub fn new(program: Arc<Program>) -> Self {
         let cpu_events = Vec::with_capacity(1 << 22);
-        let add_sub_events = Vec::with_capacity(1 << 22);
-        let memory_instr_events = Vec::with_capacity(1 << 21);
-        Self { program, cpu_events, memory_instr_events, add_sub_events, ..Default::default() }
+        let instrs_record = InstrsRecord::new();
+        Self { program, cpu_events, instrs_record, ..Default::default() }
     }
 
     #[must_use]
     #[cfg(not(feature = "pre-alloc"))]
     pub fn new(program: Arc<Program>) -> Self {
         Self { program, ..Default::default() }
-    }
-
-    /// Add a mul event to the execution record.
-    pub fn add_mul_event(&mut self, mul_event: CompAluEvent) {
-        self.mul_events.push(mul_event);
-    }
-
-    /// Add a lt event to the execution record.
-    pub fn add_lt_event(&mut self, lt_event: AluEvent) {
-        self.lt_events.push(lt_event);
     }
 
     /// Take out events from the [`ExecutionRecord`] that should be deferred to a separate shard.
@@ -321,18 +345,18 @@ impl MachineRecord for ExecutionRecord {
     fn stats(&self) -> HashMap<String, usize> {
         let mut stats = HashMap::new();
         stats.insert("cpu_events".to_string(), self.cpu_events.len());
-        stats.insert("add_sub_events".to_string(), self.add_sub_events.len());
-        stats.insert("mul_events".to_string(), self.mul_events.len());
-        stats.insert("bitwise_events".to_string(), self.bitwise_events.len());
-        stats.insert("shift_left_events".to_string(), self.shift_left_events.len());
-        stats.insert("shift_right_events".to_string(), self.shift_right_events.len());
-        stats.insert("divrem_events".to_string(), self.divrem_events.len());
-        stats.insert("lt_events".to_string(), self.lt_events.len());
-        stats.insert("cloclz_events".to_string(), self.cloclz_events.len());
-        stats.insert("memory_instr_events".to_string(), self.memory_instr_events.len());
-        stats.insert("branch_events".to_string(), self.branch_events.len());
-        stats.insert("jump_events".to_string(), self.jump_events.len());
-        stats.insert("misc_events".to_string(), self.misc_events.len());
+        stats.insert("add_sub_events".to_string(), self.instrs_record.add_sub_events.len());
+        stats.insert("mul_events".to_string(), self.instrs_record.mul_events.len());
+        stats.insert("bitwise_events".to_string(), self.instrs_record.bitwise_events.len());
+        stats.insert("shift_left_events".to_string(), self.instrs_record.shift_left_events.len());
+        stats.insert("shift_right_events".to_string(), self.instrs_record.shift_right_events.len());
+        stats.insert("divrem_events".to_string(), self.instrs_record.divrem_events.len());
+        stats.insert("lt_events".to_string(), self.instrs_record.lt_events.len());
+        stats.insert("cloclz_events".to_string(), self.instrs_record.cloclz_events.len());
+        stats.insert("memory_instr_events".to_string(), self.instrs_record.memory_instr_events.len());
+        stats.insert("branch_events".to_string(), self.instrs_record.branch_events.len());
+        stats.insert("jump_events".to_string(), self.instrs_record.jump_events.len());
+        stats.insert("misc_events".to_string(), self.instrs_record.misc_events.len());
 
         for (syscall_code, events) in self.precompile_events.iter() {
             stats.insert(format!("syscall {syscall_code:?}"), events.len());
@@ -357,19 +381,19 @@ impl MachineRecord for ExecutionRecord {
 
     fn append(&mut self, other: &mut ExecutionRecord) {
         self.cpu_events.append(&mut other.cpu_events);
-        self.add_sub_events.append(&mut other.add_sub_events);
-        self.mul_events.append(&mut other.mul_events);
-        self.bitwise_events.append(&mut other.bitwise_events);
-        self.shift_left_events.append(&mut other.shift_left_events);
-        self.shift_right_events.append(&mut other.shift_right_events);
-        self.divrem_events.append(&mut other.divrem_events);
-        self.lt_events.append(&mut other.lt_events);
-        self.cloclz_events.append(&mut other.cloclz_events);
-        self.memory_instr_events.append(&mut other.memory_instr_events);
-        self.branch_events.append(&mut other.branch_events);
-        self.jump_events.append(&mut other.jump_events);
-        self.misc_events.append(&mut other.misc_events);
-        self.syscall_events.append(&mut other.syscall_events);
+        self.instrs_record.add_sub_events.append(&mut other.instrs_record.add_sub_events);
+        self.instrs_record.mul_events.append(&mut other.instrs_record.mul_events);
+        self.instrs_record.bitwise_events.append(&mut other.instrs_record.bitwise_events);
+        self.instrs_record.shift_left_events.append(&mut other.instrs_record.shift_left_events);
+        self.instrs_record.shift_right_events.append(&mut other.instrs_record.shift_right_events);
+        self.instrs_record.divrem_events.append(&mut other.instrs_record.divrem_events);
+        self.instrs_record.lt_events.append(&mut other.instrs_record.lt_events);
+        self.instrs_record.cloclz_events.append(&mut other.instrs_record.cloclz_events);
+        self.instrs_record.memory_instr_events.append(&mut other.instrs_record.memory_instr_events);
+        self.instrs_record.branch_events.append(&mut other.instrs_record.branch_events);
+        self.instrs_record.jump_events.append(&mut other.instrs_record.jump_events);
+        self.instrs_record.misc_events.append(&mut other.instrs_record.misc_events);
+        self.instrs_record.syscall_events.append(&mut other.instrs_record.syscall_events);
 
         self.precompile_events.append(&mut other.precompile_events);
 

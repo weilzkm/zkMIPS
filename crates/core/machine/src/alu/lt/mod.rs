@@ -105,7 +105,7 @@ impl<F: PrimeField32> MachineAir<F> for LtChip {
         _: &mut ExecutionRecord,
     ) -> RowMajorMatrix<F> {
         // Generate the trace rows for each event.
-        let nb_rows = input.lt_events.len();
+        let nb_rows = input.instrs_record.lt_events.len();
         let size_log2 = input.fixed_log2_rows::<F, _>(self);
         let padded_nb_rows = next_power_of_two(nb_rows, size_log2);
         let mut values = zeroed_f_vec(padded_nb_rows * NUM_LT_COLS);
@@ -119,7 +119,7 @@ impl<F: PrimeField32> MachineAir<F> for LtChip {
 
                     if idx < nb_rows {
                         let mut byte_lookup_events = Vec::new();
-                        let event = &input.lt_events[idx];
+                        let event = &input.instrs_record.lt_events[idx];
                         self.event_to_row(event, cols, &mut byte_lookup_events);
                     }
                 });
@@ -132,9 +132,10 @@ impl<F: PrimeField32> MachineAir<F> for LtChip {
     }
 
     fn generate_dependencies(&self, input: &Self::Record, output: &mut Self::Record) {
-        let chunk_size = std::cmp::max(input.lt_events.len() / num_cpus::get(), 1);
+        let chunk_size = std::cmp::max(input.instrs_record.lt_events.len() / num_cpus::get(), 1);
 
         let blu_batches = input
+            .instrs_record
             .lt_events
             .par_chunks(chunk_size)
             .map(|events| {
@@ -155,7 +156,7 @@ impl<F: PrimeField32> MachineAir<F> for LtChip {
         if let Some(shape) = shard.shape.as_ref() {
             shape.included::<F, _>(self)
         } else {
-            !shard.lt_events.is_empty()
+            !shard.instrs_record.lt_events.is_empty()
         }
     }
 

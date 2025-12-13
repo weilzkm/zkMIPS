@@ -115,7 +115,7 @@ impl<F: PrimeField32> MachineAir<F> for ShiftLeft {
     ) -> RowMajorMatrix<F> {
         // Generate the trace rows for each event.
         let mut rows: Vec<[F; NUM_SHIFT_LEFT_COLS]> = vec![];
-        let shift_left_events = input.shift_left_events.clone();
+        let shift_left_events = input.instrs_record.shift_left_events.clone();
         for event in shift_left_events.iter() {
             let mut row = [F::ZERO; NUM_SHIFT_LEFT_COLS];
             let cols: &mut ShiftLeftCols<F> = row.as_mut_slice().borrow_mut();
@@ -148,7 +148,7 @@ impl<F: PrimeField32> MachineAir<F> for ShiftLeft {
             row
         };
         debug_assert!(padded_row_template.len() == NUM_SHIFT_LEFT_COLS);
-        for i in input.shift_left_events.len() * NUM_SHIFT_LEFT_COLS..trace.values.len() {
+        for i in input.instrs_record.shift_left_events.len() * NUM_SHIFT_LEFT_COLS..trace.values.len() {
             trace.values[i] = padded_row_template[i % NUM_SHIFT_LEFT_COLS];
         }
 
@@ -156,9 +156,10 @@ impl<F: PrimeField32> MachineAir<F> for ShiftLeft {
     }
 
     fn generate_dependencies(&self, input: &Self::Record, output: &mut Self::Record) {
-        let chunk_size = std::cmp::max(input.shift_left_events.len() / num_cpus::get(), 1);
+        let chunk_size = std::cmp::max(input.instrs_record.shift_left_events.len() / num_cpus::get(), 1);
 
         let blu_batches = input
+            .instrs_record
             .shift_left_events
             .par_chunks(chunk_size)
             .map(|events| {
@@ -179,7 +180,7 @@ impl<F: PrimeField32> MachineAir<F> for ShiftLeft {
         if let Some(shape) = shard.shape.as_ref() {
             shape.included::<F, _>(self)
         } else {
-            !shard.shift_left_events.is_empty()
+            !shard.instrs_record.shift_left_events.is_empty()
         }
     }
 

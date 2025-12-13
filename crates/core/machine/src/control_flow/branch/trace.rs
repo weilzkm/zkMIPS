@@ -29,8 +29,8 @@ impl<F: PrimeField32> MachineAir<F> for BranchChip {
         input: &ExecutionRecord,
         output: &mut ExecutionRecord,
     ) -> RowMajorMatrix<F> {
-        let chunk_size = std::cmp::max((input.branch_events.len()) / num_cpus::get(), 1);
-        let nb_rows = input.branch_events.len();
+        let chunk_size = std::cmp::max((input.instrs_record.branch_events.len()) / num_cpus::get(), 1);
+        let nb_rows = input.instrs_record.branch_events.len();
         let size_log2 = input.fixed_log2_rows::<F, _>(self);
         let padded_nb_rows = next_power_of_two(nb_rows, size_log2);
         let mut values = zeroed_f_vec(padded_nb_rows * NUM_BRANCH_COLS);
@@ -45,8 +45,8 @@ impl<F: PrimeField32> MachineAir<F> for BranchChip {
                     let idx = i * chunk_size + j;
                     let cols: &mut BranchColumns<F> = row.borrow_mut();
 
-                    if idx < input.branch_events.len() {
-                        let event = &input.branch_events[idx];
+                    if idx < input.instrs_record.branch_events.len() {
+                        let event = &input.instrs_record.branch_events[idx];
                         self.event_to_row(event, cols, &mut blu);
                     }
                 });
@@ -64,7 +64,7 @@ impl<F: PrimeField32> MachineAir<F> for BranchChip {
         if let Some(shape) = shard.shape.as_ref() {
             shape.included::<F, _>(self)
         } else {
-            !shard.branch_events.is_empty()
+            !shard.instrs_record.branch_events.is_empty()
         }
     }
 

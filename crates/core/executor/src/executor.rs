@@ -27,7 +27,7 @@ use crate::{
     hook::{HookEnv, HookRegistry},
     memory::Memory,
     pad_mips_event_counts,
-    record::{ExecutionRecord, MemoryAccessRecord},
+    record::{ExecutionRecord, MemoryAccessRecord, InstrsRecord},
     sign_extend,
     state::{ExecutionState, ForkState},
     subproof::SubproofVerifier,
@@ -249,6 +249,319 @@ pub enum ExecutionError {
     NullPointerReference(),
 }
 
+/// Emit a CPU event.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn emit_cpu(
+    cpu_events: &mut Vec<CpuEvent>,
+    clk: u32,
+    pc: u32,
+    next_pc: u32,
+    // this is added for branch instruction
+    next_next_pc: u32,
+    a: u32,
+    b: u32,
+    c: u32,
+    hi_or_prev_a: Option<u32>,
+    record: MemoryAccessRecord,
+    exit_code: u32,
+) {
+    cpu_events.push(CpuEvent {
+        clk,
+        pc,
+        next_pc,
+        next_next_pc,
+        a,
+        a_record: record.a,
+        b,
+        b_record: record.b,
+        c,
+        c_record: record.c,
+        hi: hi_or_prev_a,
+        hi_record: record.hi,
+        memory_record: record.memory,
+        exit_code,
+    });
+}
+
+/// Emit an ALU event.
+#[allow(clippy::too_many_arguments)]
+fn emit_alu_event(
+    insts_record: &mut InstrsRecord,
+    shard: u32,
+    clk: u32,
+    pc: u32,
+    next_pc: u32,
+    opcode: Opcode,
+    hi_or_prev_a: Option<u32>,
+    a: u32,
+    b: u32,
+    c: u32,
+    hi_record: Option<MemoryRecordEnum>,
+) {
+    let event = AluEvent {
+        pc,
+        next_pc,
+        opcode,
+        hi: hi_or_prev_a.unwrap_or(0),
+        a,
+        b,
+        c,
+    };
+
+    let (hi_access, hi_record_is_real) = match hi_record {
+        Some(MemoryRecordEnum::Write(record)) => (record, true),
+        _ => (MemoryWriteRecord::default(), false),
+    };
+
+    let event_comp = CompAluEvent {
+        clk,
+        shard,
+        pc,
+        next_pc,
+        opcode,
+        hi: hi_or_prev_a.unwrap_or(0),
+        a,
+        b,
+        c,
+        hi_record: hi_access,
+        hi_record_is_real,
+    };
+
+    match opcode {
+        Opcode::ADD | Opcode::SUB => {
+            insts_record.add_sub_events.push(event);
+        }
+        Opcode::XOR | Opcode::OR | Opcode::AND | Opcode::NOR => {
+            insts_record.bitwise_events.push(event);
+        }
+        Opcode::SLL => {
+            insts_record.shift_left_events.push(event);
+        }
+        Opcode::SRL | Opcode::SRA | Opcode::ROR => {
+            insts_record.shift_right_events.push(event);
+        }
+        Opcode::SLT | Opcode::SLTU => {
+            insts_record.lt_events.push(event);
+        }
+        Opcode::MUL | Opcode::MULT | Opcode::MULTU => {
+            insts_record.mul_events.push(event_comp);
+        }
+        Opcode::DIV | Opcode::DIVU | Opcode::MOD | Opcode::MODU => {
+            insts_record.divrem_events.push(event_comp);
+            emit_divrem_dependencies(insts_record, event);
+        }
+        Opcode::CLZ | Opcode::CLO => {
+            insts_record.cloclz_events.push(event);
+            emit_cloclz_dependencies(insts_record, event);
+        }
+        _ => {}
+    }
+}
+
+/// Emit a memory instruction event.
+#[inline]
+fn emit_mem_instr_event(insts_record: &mut InstrsRecord, 
+    shard: u32, clk: u32, pc: u32, next_pc: u32, mem_access: MemoryRecordEnum,
+     opcode: Opcode, a: u32, b: u32, c: u32, prev_a_val: u32) {
+    let event = MemInstrEvent {
+        shard,
+        clk,
+        pc,
+        next_pc,
+        opcode,
+        a,
+        b,
+        c,
+        mem_access,
+        prev_a_val,
+    };
+
+    insts_record.memory_instr_events.push(event);
+    emit_memory_dependencies(
+        insts_record,
+        event,
+        mem_access.current_record(),
+    );
+}
+
+/// Emit a branch event.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn emit_branch_event(
+    insts_record: &mut InstrsRecord,
+    pc: u32,
+    opcode: Opcode,
+    a: u32,
+    b: u32,
+    c: u32,
+    next_pc: u32,
+    next_next_pc: u32,
+) {
+    let event = BranchEvent { pc, next_pc, next_next_pc, opcode, a, b, c };
+    insts_record.branch_events.push(event);
+    emit_branch_dependencies(insts_record, event);
+}
+
+/// Emit a jump event.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn emit_jump_event(
+    insts_record: &mut InstrsRecord,
+    pc: u32,
+    opcode: Opcode,
+    a: u32,
+    b: u32,
+    c: u32,
+    next_pc: u32,
+    next_next_pc: u32,
+) {
+    let event = JumpEvent::new(pc, next_pc, next_next_pc, opcode, a, b, c);
+    insts_record.jump_events.push(event);
+    emit_jump_dependencies(insts_record, event);
+}
+
+/// Emit a misc event.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn emit_misc_event(
+    insts_record: &mut InstrsRecord,
+    shard: u32,
+    clk: u32,
+    pc: u32,
+    next_pc:u32,
+    opcode: Opcode,
+    a: u32,
+    b: u32,
+    c: u32,
+    prev_a: u32,
+    hi_record: Option<MemoryRecordEnum>,
+) {
+    if matches!(opcode, Opcode::MNE | Opcode::MEQ | Opcode::WSBH) {
+        let event =
+            MovCondEvent::new(pc, next_pc, opcode, a, b, c, prev_a);
+        insts_record.movcond_events.push(event);
+    } else {
+        let hi_access = match hi_record {
+            Some(MemoryRecordEnum::Write(record)) => record,
+            _ => MemoryWriteRecord::default(),
+        };
+
+        let event = MiscEvent::new(
+            clk,
+            shard,
+            pc,
+            next_pc,
+            opcode,
+            a,
+            b,
+            c,
+            prev_a,
+            hi_access,
+        );
+        insts_record.misc_events.push(event);
+        emit_misc_dependencies(insts_record, event);
+    }
+}
+
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn syscall_event(
+    shard: u32,
+    clk: u32,
+    pc: u32,
+    a_record: Option<MemoryRecordEnum>,
+    next_pc: u32,
+    syscall_id: u32,
+    arg1: u32,
+    arg2: u32,
+) -> SyscallEvent {
+    let (write, is_real) = match a_record {
+        Some(MemoryRecordEnum::Write(record)) => (record, true),
+        _ => (MemoryWriteRecord::default(), false),
+    };
+
+    SyscallEvent {
+        pc,
+        next_pc,
+        shard,
+        clk,
+        a_record: write,
+        a_record_is_real: is_real,
+        syscall_id,
+        arg1,
+        arg2,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_syscall_event(
+    insts_record: &mut InstrsRecord,
+    shard: u32,
+    clk: u32,
+    pc: u32,
+    a_record: Option<MemoryRecordEnum>,
+    syscall_id: u32,
+    arg1: u32,
+    arg2: u32,
+    next_pc: u32,
+) {
+    let syscall_event = syscall_event(shard, clk, pc, a_record, next_pc, syscall_id, arg1, arg2);
+
+    insts_record.syscall_events.push(syscall_event);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_instr_events(
+    instrs_record: &mut InstrsRecord,
+    shard: u32,
+    clk: u32,
+    pc: u32,
+    next_pc: u32,
+    // this is added for branch instruction
+    next_next_pc: u32,
+    instruction: &Instruction,
+    a: u32,
+    b: u32,
+    c: u32,
+    hi_or_prev_a: Option<u32>,
+    record: MemoryAccessRecord,
+    syscall_code: u32,
+) {
+    if instruction.is_alu_instruction() {
+        emit_alu_event(instrs_record, shard, clk, pc, next_pc, instruction.opcode, hi_or_prev_a, a, b, c, record.hi);
+    } else if instruction.is_memory_load_instruction()
+        || instruction.is_memory_store_instruction()
+    {
+        emit_mem_instr_event(instrs_record, shard, clk, pc, next_pc, 
+            record.memory.expect("Must have memory access"),
+            instruction.opcode, a, b, c, hi_or_prev_a.unwrap_or(0));
+    } else if instruction.is_branch_instruction() {
+        emit_branch_event(instrs_record, pc, instruction.opcode, a, b, c, next_pc, next_next_pc);
+    } else if instruction.is_jump_instruction() {
+        emit_jump_event(instrs_record, pc, instruction.opcode, a, b, c, next_pc, next_next_pc);
+    } else if instruction.is_misc_instruction() {
+        emit_misc_event(
+            instrs_record, 
+            shard,
+            clk,
+            pc,
+            next_pc,
+            instruction.opcode,
+            a,
+            b,
+            c,
+            hi_or_prev_a.unwrap_or(0),
+            record.hi,
+        );
+    } else if instruction.is_syscall_instruction() {
+        emit_syscall_event(instrs_record, shard, clk, pc, record.a, syscall_code, b, c, next_pc);
+    } else {
+        log::debug!("wrong {}\n", instruction.opcode);
+        unreachable!()
+    }
+}
+
 impl<'a> Executor<'a> {
     /// Create a new [``Executor``] from a program and options.
     #[must_use]
@@ -328,6 +641,34 @@ impl<'a> Executor<'a> {
         }
     }
 
+     #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn syscall_event(
+        &self,
+        clk: u32,
+        a_record: Option<MemoryRecordEnum>,
+        next_pc: u32,
+        syscall_id: u32,
+        arg1: u32,
+        arg2: u32,
+    ) -> SyscallEvent {
+        let (write, is_real) = match a_record {
+            Some(MemoryRecordEnum::Write(record)) => (record, true),
+            _ => (MemoryWriteRecord::default(), false),
+        };
+
+        SyscallEvent {
+            pc: self.state.pc,
+            next_pc,
+            shard: self.shard(),
+            clk,
+            a_record: write,
+            a_record_is_real: is_real,
+            syscall_id,
+            arg1,
+            arg2,
+        }
+    }
     /// Invokes a hook with the given file descriptor `fd` with the data `buf`.
     ///
     /// # Errors
@@ -892,6 +1233,7 @@ impl<'a> Executor<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_events(
         &mut self,
+        shard: u32,
         clk: u32,
         pc: u32,
         next_pc: u32,
@@ -906,284 +1248,12 @@ impl<'a> Executor<'a> {
         exit_code: u32,
         syscall_code: u32,
     ) {
-        self.emit_cpu(clk, pc, next_pc, next_next_pc, a, b, c, hi_or_prev_a, record, exit_code);
+        emit_cpu(&mut self.record.cpu_events, clk, pc, next_pc, next_next_pc, a, b, c, hi_or_prev_a, record, exit_code);
 
-        if instruction.is_alu_instruction() {
-            self.emit_alu_event(clk, instruction.opcode, hi_or_prev_a, a, b, c, record.hi);
-        } else if instruction.is_memory_load_instruction()
-            || instruction.is_memory_store_instruction()
-        {
-            self.emit_mem_instr_event(instruction.opcode, a, b, c, hi_or_prev_a.unwrap_or(0));
-        } else if instruction.is_branch_instruction() {
-            self.emit_branch_event(instruction.opcode, a, b, c, next_pc, next_next_pc);
-        } else if instruction.is_jump_instruction() {
-            self.emit_jump_event(instruction.opcode, a, b, c, next_pc, next_next_pc);
-        } else if instruction.is_misc_instruction() {
-            self.emit_misc_event(
-                clk,
-                instruction.opcode,
-                a,
-                b,
-                c,
-                hi_or_prev_a.unwrap_or(0),
-                record.hi,
-            );
-        } else if instruction.is_syscall_instruction() {
-            self.emit_syscall_event(clk, record.a, syscall_code, b, c, next_pc);
-        } else {
-            log::debug!("wrong {}\n", instruction.opcode);
-            unreachable!()
-        }
+        emit_instr_events(&mut self.record.instrs_record, shard, clk, pc, next_pc, next_next_pc, instruction, a, b, c, hi_or_prev_a, record, syscall_code);
     }
 
-    /// Emit a CPU event.
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    fn emit_cpu(
-        &mut self,
-        clk: u32,
-        pc: u32,
-        next_pc: u32,
-        // this is added for branch instruction
-        next_next_pc: u32,
-        a: u32,
-        b: u32,
-        c: u32,
-        hi_or_prev_a: Option<u32>,
-        record: MemoryAccessRecord,
-        exit_code: u32,
-    ) {
-        self.record.cpu_events.push(CpuEvent {
-            clk,
-            pc,
-            next_pc,
-            next_next_pc,
-            a,
-            a_record: record.a,
-            b,
-            b_record: record.b,
-            c,
-            c_record: record.c,
-            hi: hi_or_prev_a,
-            hi_record: record.hi,
-            memory_record: record.memory,
-            exit_code,
-        });
-    }
-
-    /// Emit an ALU event.
-    #[allow(clippy::too_many_arguments)]
-    fn emit_alu_event(
-        &mut self,
-        clk: u32,
-        opcode: Opcode,
-        hi_or_prev_a: Option<u32>,
-        a: u32,
-        b: u32,
-        c: u32,
-        hi_record: Option<MemoryRecordEnum>,
-    ) {
-        let event = AluEvent {
-            pc: self.state.pc,
-            next_pc: self.state.next_pc,
-            opcode,
-            hi: hi_or_prev_a.unwrap_or(0),
-            a,
-            b,
-            c,
-        };
-
-        let (hi_access, hi_record_is_real) = match hi_record {
-            Some(MemoryRecordEnum::Write(record)) => (record, true),
-            _ => (MemoryWriteRecord::default(), false),
-        };
-
-        let event_comp = CompAluEvent {
-            clk,
-            shard: self.shard(),
-            pc: self.state.pc,
-            next_pc: self.state.next_pc,
-            opcode,
-            hi: hi_or_prev_a.unwrap_or(0),
-            a,
-            b,
-            c,
-            hi_record: hi_access,
-            hi_record_is_real,
-        };
-
-        match opcode {
-            Opcode::ADD | Opcode::SUB => {
-                self.record.add_sub_events.push(event);
-            }
-            Opcode::XOR | Opcode::OR | Opcode::AND | Opcode::NOR => {
-                self.record.bitwise_events.push(event);
-            }
-            Opcode::SLL => {
-                self.record.shift_left_events.push(event);
-            }
-            Opcode::SRL | Opcode::SRA | Opcode::ROR => {
-                self.record.shift_right_events.push(event);
-            }
-            Opcode::SLT | Opcode::SLTU => {
-                self.record.lt_events.push(event);
-            }
-            Opcode::MUL | Opcode::MULT | Opcode::MULTU => {
-                self.record.mul_events.push(event_comp);
-            }
-            Opcode::DIV | Opcode::DIVU | Opcode::MOD | Opcode::MODU => {
-                self.record.divrem_events.push(event_comp);
-                emit_divrem_dependencies(self, event);
-            }
-            Opcode::CLZ | Opcode::CLO => {
-                self.record.cloclz_events.push(event);
-                emit_cloclz_dependencies(self, event);
-            }
-            _ => {}
-        }
-    }
-
-    /// Emit a memory instruction event.
-    #[inline]
-    fn emit_mem_instr_event(&mut self, opcode: Opcode, a: u32, b: u32, c: u32, prev_a_val: u32) {
-        let event = MemInstrEvent {
-            shard: self.shard(),
-            clk: self.state.clk,
-            pc: self.state.pc,
-            next_pc: self.state.next_pc,
-            opcode,
-            a,
-            b,
-            c,
-            mem_access: self.memory_accesses.memory.expect("Must have memory access"),
-            prev_a_val,
-        };
-
-        self.record.memory_instr_events.push(event);
-        emit_memory_dependencies(
-            self,
-            event,
-            self.memory_accesses.memory.expect("Must have memory access").current_record(),
-        );
-    }
-
-    /// Emit a branch event.
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    fn emit_branch_event(
-        &mut self,
-        opcode: Opcode,
-        a: u32,
-        b: u32,
-        c: u32,
-        next_pc: u32,
-        next_next_pc: u32,
-    ) {
-        let event = BranchEvent { pc: self.state.pc, next_pc, next_next_pc, opcode, a, b, c };
-        self.record.branch_events.push(event);
-        emit_branch_dependencies(self, event);
-    }
-
-    /// Emit a jump event.
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    fn emit_jump_event(
-        &mut self,
-        opcode: Opcode,
-        a: u32,
-        b: u32,
-        c: u32,
-        next_pc: u32,
-        next_next_pc: u32,
-    ) {
-        let event = JumpEvent::new(self.state.pc, next_pc, next_next_pc, opcode, a, b, c);
-        self.record.jump_events.push(event);
-        emit_jump_dependencies(self, event);
-    }
-
-    /// Emit a misc event.
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    fn emit_misc_event(
-        &mut self,
-        clk: u32,
-        opcode: Opcode,
-        a: u32,
-        b: u32,
-        c: u32,
-        prev_a: u32,
-        hi_record: Option<MemoryRecordEnum>,
-    ) {
-        if matches!(opcode, Opcode::MNE | Opcode::MEQ | Opcode::WSBH) {
-            let event =
-                MovCondEvent::new(self.state.pc, self.state.next_pc, opcode, a, b, c, prev_a);
-            self.record.movcond_events.push(event);
-        } else {
-            let hi_access = match hi_record {
-                Some(MemoryRecordEnum::Write(record)) => record,
-                _ => MemoryWriteRecord::default(),
-            };
-
-            let event = MiscEvent::new(
-                clk,
-                self.shard(),
-                self.state.pc,
-                self.state.next_pc,
-                opcode,
-                a,
-                b,
-                c,
-                prev_a,
-                hi_access,
-            );
-            self.record.misc_events.push(event);
-            emit_misc_dependencies(self, event);
-        }
-    }
-
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn syscall_event(
-        &self,
-        clk: u32,
-        a_record: Option<MemoryRecordEnum>,
-        next_pc: u32,
-        syscall_id: u32,
-        arg1: u32,
-        arg2: u32,
-    ) -> SyscallEvent {
-        let (write, is_real) = match a_record {
-            Some(MemoryRecordEnum::Write(record)) => (record, true),
-            _ => (MemoryWriteRecord::default(), false),
-        };
-
-        SyscallEvent {
-            pc: self.state.pc,
-            next_pc,
-            shard: self.shard(),
-            clk,
-            a_record: write,
-            a_record_is_real: is_real,
-            syscall_id,
-            arg1,
-            arg2,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_syscall_event(
-        &mut self,
-        clk: u32,
-        a_record: Option<MemoryRecordEnum>,
-        syscall_id: u32,
-        arg1: u32,
-        arg2: u32,
-        next_pc: u32,
-    ) {
-        let syscall_event = self.syscall_event(clk, a_record, next_pc, syscall_id, arg1, arg2);
-
-        self.record.syscall_events.push(syscall_event);
-    }
+ 
     /// Fetch the destination register and input operand values for an ALU instruction.
     fn alu_rr(&mut self, instruction: &Instruction) -> (Register, u32, u32) {
         if !instruction.imm_c {
@@ -1452,6 +1522,7 @@ impl<'a> Executor<'a> {
         if self.executor_mode == ExecutorMode::Trace {
             self.emit_events(
                 clk,
+                self.shard(),
                 pc,
                 next_pc,
                 next_next_pc,
@@ -1465,7 +1536,7 @@ impl<'a> Executor<'a> {
                 syscall_code,
             );
         };
-
+ 
         // Update the program counter.
         self.state.pc = next_pc;
         self.state.next_pc = next_next_pc;
@@ -2074,7 +2145,7 @@ impl<'a> Executor<'a> {
 
     /// Bump the record.
     pub fn bump_record(&mut self) {
-        println!("bumping record: {:?}", self.local_counts);
+        //println!("bumping record: {:?}", self.local_counts);
         self.local_counts = LocalCounts::default();
         // Copy all of the existing local memory accesses to the record's local_memory_access vec.
         if self.executor_mode == ExecutorMode::Trace {
@@ -2233,7 +2304,7 @@ impl<'a> Executor<'a> {
             self.initialize();
         }
         
-        while !self.execute_state(false)?.1 {}
+        while !self.execute_record(false)?.1 {}
         let end = Instant::now();
         let duration = end.duration_since(start);
 

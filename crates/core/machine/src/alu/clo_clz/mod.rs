@@ -88,7 +88,7 @@ impl<F: PrimeField32> MachineAir<F> for CloClzChip {
     ) -> RowMajorMatrix<F> {
         // Generate the trace rows for each event.
         let mut rows: Vec<[F; NUM_CLOCLZ_COLS]> = vec![];
-        let cloclz_events = input.cloclz_events.clone();
+        let cloclz_events = input.instrs_record.cloclz_events.clone();
         for event in cloclz_events.iter() {
             assert!(event.opcode == Opcode::CLZ || event.opcode == Opcode::CLO);
             let mut row = [F::ZERO; NUM_CLOCLZ_COLS];
@@ -150,7 +150,7 @@ impl<F: PrimeField32> MachineAir<F> for CloClzChip {
             row
         };
         debug_assert!(padded_row_template.len() == NUM_CLOCLZ_COLS);
-        for i in input.cloclz_events.len() * NUM_CLOCLZ_COLS..trace.values.len() {
+        for i in input.instrs_record.cloclz_events.len() * NUM_CLOCLZ_COLS..trace.values.len() {
             trace.values[i] = padded_row_template[i % NUM_CLOCLZ_COLS];
         }
 
@@ -161,7 +161,7 @@ impl<F: PrimeField32> MachineAir<F> for CloClzChip {
         if let Some(shape) = shard.shape.as_ref() {
             shape.included::<F, _>(self)
         } else {
-            !shard.cloclz_events.is_empty()
+            !shard.instrs_record.cloclz_events.is_empty()
         }
     }
 }

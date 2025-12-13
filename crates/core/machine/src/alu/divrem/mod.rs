@@ -212,7 +212,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
     ) -> RowMajorMatrix<F> {
         // Generate the trace rows for each event.
         let mut rows: Vec<[F; NUM_DIVREM_COLS]> = vec![];
-        let divrem_events = input.divrem_events.clone();
+        let divrem_events = input.instrs_record.divrem_events.clone();
         for event in divrem_events.iter() {
             assert!(
                 event.opcode == Opcode::DIVU
@@ -351,7 +351,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
         if let Some(shape) = shard.shape.as_ref() {
             shape.included::<F, _>(self)
         } else {
-            !shard.divrem_events.is_empty()
+            !shard.instrs_record.divrem_events.is_empty()
         }
     }
 

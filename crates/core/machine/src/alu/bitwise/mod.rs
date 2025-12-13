@@ -73,6 +73,7 @@ impl<F: PrimeField32> MachineAir<F> for BitwiseChip {
         _: &mut ExecutionRecord,
     ) -> RowMajorMatrix<F> {
         let mut rows = input
+            .instrs_record
             .bitwise_events
             .par_iter()
             .map(|event| {
@@ -96,9 +97,10 @@ impl<F: PrimeField32> MachineAir<F> for BitwiseChip {
     }
 
     fn generate_dependencies(&self, input: &Self::Record, output: &mut Self::Record) {
-        let chunk_size = std::cmp::max(input.bitwise_events.len() / num_cpus::get(), 1);
+        let chunk_size = std::cmp::max(input.instrs_record.bitwise_events.len() / num_cpus::get(), 1);
 
         let blu_batches = input
+            .instrs_record
             .bitwise_events
             .par_chunks(chunk_size)
             .map(|events| {
@@ -119,7 +121,7 @@ impl<F: PrimeField32> MachineAir<F> for BitwiseChip {
         if let Some(shape) = shard.shape.as_ref() {
             shape.included::<F, _>(self)
         } else {
-            !shard.bitwise_events.is_empty()
+            !shard.instrs_record.bitwise_events.is_empty()
         }
     }
 
