@@ -2193,7 +2193,6 @@ impl<'a> Executor<'a> {
         &mut self,
         emit_global_memory_events: bool,
     ) -> Result<(ExecutionState, bool), ExecutionError> {
-        let start = Instant::now();
         self.memory_checkpoint.clear();
         self.executor_mode = ExecutorMode::Checkpoint;
         self.emit_global_memory_events = emit_global_memory_events;
@@ -2215,17 +2214,11 @@ impl<'a> Executor<'a> {
         for i in 0..NUM_REGISTERS as u32 {
              self.memory_checkpoint.registers.insert(i, Some(*self.state.memory.registers.get(i)));
         }
-        let stage1 = Instant::now();
-        let duration = stage1.duration_since(start);
 
-        println!("execute state stage1 with {} seconds", duration.as_secs_f64());
         let done = tracing::debug_span!("execute").in_scope(|| self.execute())?;
         // Create a checkpoint using `memory_checkpoint`. Just include all memory if `done` since we
         // need it all for MemoryFinalize.
-        let stage2 = Instant::now();
-        let duration = stage2.duration_since(stage1);
 
-        println!("execute state stage2 with {} seconds", duration.as_secs_f64());
         tracing::debug_span!("create memory checkpoint").in_scope(|| {
             let memory_checkpoint = std::mem::take(&mut self.memory_checkpoint);
             let uninitialized_memory_checkpoint =
@@ -2264,10 +2257,7 @@ impl<'a> Executor<'a> {
         if !done {
             self.records.clear();
         }
-        let stage3 = Instant::now();
-        let duration = stage3.duration_since(stage2);
 
-        println!("execute state stage3 with {} seconds", duration.as_secs_f64());
         Ok((checkpoint, done))
     }
 
@@ -2275,8 +2265,16 @@ impl<'a> Executor<'a> {
         self.state.clk = 0;
 
         tracing::debug!("loading memory image");
+
         for (&addr, value) in &self.program.image {
             self.state.memory.insert(addr, MemoryRecord { value: *value, shard: 0, timestamp: 0 });
+        }
+
+        for addr in 0..NUM_REGISTERS as u32 {
+            if !self.program.image.contains_key(&addr) {
+                self.state.uninitialized_memory.registers.insert(addr, 0);
+                self.state.memory.insert(addr, MemoryRecord { value: 0, shard: 0, timestamp: 0 });
+            }
         }
     }
 
@@ -2304,7 +2302,7 @@ impl<'a> Executor<'a> {
             self.initialize();
         }
         
-        while !self.execute_record(false)?.1 {}
+        while !self.execute()? {}
         let end = Instant::now();
         let duration = end.duration_since(start);
 
@@ -2325,6 +2323,7 @@ impl<'a> Executor<'a> {
         if self.state.global_clk == 0 {
             self.initialize();
         }
+
         while !self.execute()? {}
         Ok(())
     }

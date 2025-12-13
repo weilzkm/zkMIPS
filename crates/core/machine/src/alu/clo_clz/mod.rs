@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn generate_trace() {
         let mut shard = ExecutionRecord::default();
-        shard.cloclz_events = vec![
+        shard.instrs_record.cloclz_events = vec![
             AluEvent::new(0, Opcode::CLZ, 32, 0, 0),
             AluEvent::new(0, Opcode::CLZ, 8, 0x00800000, 0),
             AluEvent::new(0, Opcode::CLZ, 0, 0xffffffff, 0),
@@ -323,7 +323,7 @@ mod tests {
         }
 
         let mut shard = ExecutionRecord::default();
-        shard.cloclz_events = cloclz_events;
+        shard.instrs_record.cloclz_events = cloclz_events;
         let chip = CloClzChip::default();
         let trace: RowMajorMatrix<KoalaBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());

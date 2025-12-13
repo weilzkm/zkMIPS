@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn generate_trace() {
         let mut shard = ExecutionRecord::default();
-        shard.shift_left_events = vec![AluEvent::new(0, Opcode::SLL, 16, 8, 1)];
+        shard.instrs_record.shift_left_events = vec![AluEvent::new(0, Opcode::SLL, 16, 8, 1)];
         let chip = ShiftLeft::default();
         let trace: RowMajorMatrix<KoalaBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
@@ -460,7 +460,7 @@ mod tests {
         }
 
         let mut shard = ExecutionRecord::default();
-        shard.shift_left_events = shift_events;
+        shard.instrs_record.shift_left_events = shift_events;
         let chip = ShiftLeft::default();
         let trace: RowMajorMatrix<KoalaBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());

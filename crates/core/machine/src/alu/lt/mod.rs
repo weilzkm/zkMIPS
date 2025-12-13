@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn generate_trace() {
         let mut shard = ExecutionRecord::default();
-        shard.lt_events = vec![AluEvent::new(0, Opcode::SLT, 0, 3, 2)];
+        shard.instrs_record.lt_events = vec![AluEvent::new(0, Opcode::SLT, 0, 3, 2)];
         let chip = LtChip::default();
         let generate_trace = chip.generate_trace(&shard, &mut ExecutionRecord::default());
         let trace: RowMajorMatrix<KoalaBear> = generate_trace;
@@ -500,7 +500,7 @@ mod tests {
 
         const NEG_3: u32 = 0b11111111111111111111111111111101;
         const NEG_4: u32 = 0b11111111111111111111111111111100;
-        shard.lt_events = vec![
+        shard.instrs_record.lt_events = vec![
             // 0 == 3 < 2
             AluEvent::new(0, Opcode::SLT, 0, 3, 2),
             // 1 == 2 < 3
@@ -527,7 +527,7 @@ mod tests {
         let mut shard = ExecutionRecord::default();
 
         const LARGE: u32 = 0b11111111111111111111111111111101;
-        shard.lt_events = vec![
+        shard.instrs_record.lt_events = vec![
             // 0 == 3 < 2
             AluEvent::new(0, Opcode::SLTU, 0, 3, 2),
             // 1 == 2 < 3

@@ -513,7 +513,7 @@ mod tests {
         for _ in 0..10 {
             mul_events.push(CompAluEvent::new(0, Opcode::MUL, 0x80004000, 0x80000000, 0xffff8000));
         }
-        shard.mul_events = mul_events;
+        shard.instrs_record.mul_events = mul_events;
         let chip = MulChip::default();
         let _trace: RowMajorMatrix<KoalaBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
@@ -552,7 +552,7 @@ mod tests {
             mul_events.push(CompAluEvent::new(0, Opcode::MUL, 1, 1, 1));
         }
 
-        shard.mul_events = mul_events;
+        shard.instrs_record.mul_events = mul_events;
         let chip = MulChip::default();
         let trace: RowMajorMatrix<KoalaBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());

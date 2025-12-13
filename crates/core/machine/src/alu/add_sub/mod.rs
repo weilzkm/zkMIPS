@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn generate_trace() {
         let mut shard = ExecutionRecord::default();
-        shard.add_sub_events = vec![AluEvent::new(0, Opcode::ADD, 14, 8, 6)];
+        shard.instrs_record.add_sub_events = vec![AluEvent::new(0, Opcode::ADD, 14, 8, 6)];
         let chip = AddSubChip::default();
         let trace: RowMajorMatrix<KoalaBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
@@ -280,7 +280,7 @@ mod tests {
             let operand_1 = thread_rng().gen_range(0..u32::MAX);
             let operand_2 = thread_rng().gen_range(0..u32::MAX);
             let result = operand_1.wrapping_add(operand_2);
-            shard.add_sub_events.push(AluEvent::new(
+            shard.instrs_record.add_sub_events.push(AluEvent::new(
                 i << 2,
                 Opcode::ADD,
                 result,
@@ -292,7 +292,7 @@ mod tests {
             let operand_1 = thread_rng().gen_range(0..u32::MAX);
             let operand_2 = thread_rng().gen_range(0..u32::MAX);
             let result = operand_1.wrapping_sub(operand_2);
-            shard.add_sub_events.push(AluEvent::new(
+            shard.instrs_record.add_sub_events.push(AluEvent::new(
                 i << 2,
                 Opcode::SUB,
                 result,

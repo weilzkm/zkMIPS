@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn generate_trace() {
         let mut shard = ExecutionRecord::default();
-        shard.bitwise_events = vec![
+        shard.instrs_record.bitwise_events = vec![
             AluEvent::new(0, Opcode::XOR, 25, 10, 19),
             AluEvent::new(0, Opcode::OR, 27, 10, 19),
             AluEvent::new(0, Opcode::AND, 2, 10, 19),
@@ -263,7 +263,7 @@ mod tests {
         let mut challenger = config.challenger();
 
         let mut shard = ExecutionRecord::default();
-        shard.bitwise_events = [
+        shard.instrs_record.bitwise_events = [
             AluEvent::new(0, Opcode::XOR, 25, 10, 19),
             AluEvent::new(0, Opcode::OR, 27, 10, 19),
             AluEvent::new(0, Opcode::AND, 2, 10, 19),
