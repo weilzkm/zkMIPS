@@ -1521,8 +1521,8 @@ impl<'a> Executor<'a> {
         // Emit the CPU event for this cycle.
         if self.executor_mode == ExecutorMode::Trace {
             self.emit_events(
-                clk,
                 self.shard(),
+                clk,
                 pc,
                 next_pc,
                 next_next_pc,
@@ -2472,7 +2472,7 @@ impl<'a> Executor<'a> {
 
                 memory_finalize_events
                     .push(MemoryInitializeFinalizeEvent::finalize_from_record(addr, record));
-        }
+            }
             for addr in self.state.memory.page_table.keys() {
                 self.report.touched_memory_addresses += 1;
                 if addr == 0 {
